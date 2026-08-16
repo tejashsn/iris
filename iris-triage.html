@@ -1,0 +1,1486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IRIS Triage</title>
+<style>
+:root {
+  --bg: #0f1419;
+  --panel: #1a222d;
+  --panel-2: #131a23;
+  --border: #2d3a4a;
+  --text: #e6edf3;
+  --muted: #8b949e;
+  --accent: #3d8bfd;
+  --pass: #3fb950;
+  --fail: #f85149;
+  --warn: #d29922;
+  --mono: Consolas, "Courier New", monospace;
+  --sans: "Segoe UI", Tahoma, sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; font-family: var(--sans); background: var(--bg); color: var(--text); line-height: 1.55; }
+header { padding: 1.4rem 2rem 1rem; border-bottom: 1px solid var(--border); }
+header h1 { margin: 0 0 .2rem; font-size: 1.5rem; letter-spacing: .04em; }
+header p { margin: 0; color: var(--muted); max-width: 78ch; font-size: .9rem; }
+main { padding: 1.4rem 2rem 3rem; display: grid; gap: 1.2rem; max-width: 1500px; }
+.grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); }
+.panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.1rem; }
+.panel h2 { margin: 0 0 .8rem; font-size: .78rem; color: var(--muted); text-transform: uppercase; letter-spacing: .1em; }
+.panel h3 { margin: 1rem 0 .4rem; font-size: .9rem; color: var(--text); }
+label { display: block; font-size: .8rem; color: var(--muted); margin-bottom: .2rem; }
+input[type=text], input[type=number], textarea {
+  width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--border);
+  border-radius: 6px; padding: .4rem .55rem; margin-bottom: .55rem; font-family: inherit; font-size: .88rem;
+}
+textarea { resize: vertical; min-height: 68px; font-family: var(--mono); font-size: .82rem; }
+.dropzone {
+  border: 1px dashed var(--border); border-radius: 8px; min-height: 96px; display: flex;
+  align-items: center; justify-content: center; text-align: center; color: var(--muted);
+  padding: .8rem; cursor: pointer; font-size: .85rem; transition: border-color .15s, background .15s;
+}
+.dropzone.dragover { border-color: var(--accent); background: rgba(61,139,253,.09); }
+.dropzone.loaded { color: var(--text); border-style: solid; }
+.preview { margin-top: .6rem; max-width: 100%; border-radius: 4px; border: 1px solid var(--border); }
+table { width: 100%; border-collapse: collapse; font-size: .84rem; }
+th, td { text-align: left; padding: .32rem .5rem; border-bottom: 1px solid var(--border); }
+th { color: var(--muted); font-weight: 600; }
+td.num, th.num { text-align: right; font-family: var(--mono); }
+.verdict { font-weight: 700; font-size: 1.45rem; letter-spacing: .03em; }
+.verdict.pass { color: var(--pass); }
+.verdict.fail { color: var(--fail); }
+.verdict.report { color: var(--warn); }
+.headline { font-size: 1rem; margin: .3rem 0 0; }
+ul.findings { margin: .3rem 0 0; padding-left: 1.15rem; }
+ul.findings li { margin-bottom: .45rem; font-size: .9rem; }
+ul.findings li.alert { color: #ffb4ae; }
+ul.findings li.good { color: #a7e3b0; }
+.context { border-left: 3px solid var(--warn); padding: .5rem .8rem; background: var(--panel-2); border-radius: 0 6px 6px 0; font-size: .87rem; color: #e3d3a8; }
+pre { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: .9rem; overflow: auto; font-family: var(--mono); font-size: .75rem; max-height: 340px; white-space: pre-wrap; }
+.note { color: var(--muted); font-size: .82rem; }
+.visuals { display: grid; gap: 1rem; }
+canvas { image-rendering: pixelated; border: 1px solid var(--border); border-radius: 4px; background: #000; max-width: 100%; }
+.badge { display: inline-block; font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; padding: .12rem .45rem; border-radius: 4px; border: 1px solid var(--border); color: var(--muted); margin-left: .4rem; }
+.badge.advisory { border-color: var(--warn); color: var(--warn); }
+details { margin-top: .5rem; }
+summary { cursor: pointer; color: var(--muted); font-size: .85rem; }
+.hidden { display: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>IRIS Triage</h1>
+  <p>Image Regression Inspection Suite. Every percentage measures closeness to the reference, never visual quality. Runs entirely in this page with no server, upload, or network access.</p>
+</header>
+<main>
+
+  <section class="grid">
+    <div class="panel">
+      <h2>Reference</h2>
+      <label>Build label<input type="text" id="reference-label" value="reference"></label>
+      <div class="dropzone" data-drop="reference">Drop PNG/JPEG or click</div>
+      <img class="preview hidden" id="reference-preview" alt="">
+    </div>
+    <div class="panel">
+      <h2>Baseline (optional)</h2>
+      <label>Build label<input type="text" id="baseline-label" value="baseline"></label>
+      <div class="dropzone" data-drop="baseline">Drop PNG/JPEG or click</div>
+      <img class="preview hidden" id="baseline-preview" alt="">
+    </div>
+    <div class="panel">
+      <h2>Current</h2>
+      <label>Build label<input type="text" id="current-label" value="current"></label>
+      <div class="dropzone" data-drop="current">Drop PNG/JPEG or click</div>
+      <img class="preview hidden" id="current-preview" alt="">
+    </div>
+  </section>
+
+  <section class="grid">
+    <div class="panel">
+      <h2>Threshold and gate limits</h2>
+      <label>Threshold, required, defines pct_over_t only<input type="number" id="threshold" step="any" value="1.0"></label>
+      <p class="note">Leave every limit below empty to get metrics with no PASS/FAIL. A verdict appears only when you supply a limit.</p>
+      <label>Max mean_abs<input type="number" id="max-mean-abs" step="any" placeholder="empty = not gated"></label>
+      <label>Max p99_9<input type="number" id="max-p99-9" step="any" placeholder="empty = not gated"></label>
+      <label>Max max_abs<input type="number" id="max-max-abs" step="any" placeholder="empty = not gated"></label>
+      <label>Max pct_over_t<input type="number" id="max-pct-over-t" step="any" placeholder="empty = not gated"></label>
+      <label>Min similarity_pct<input type="number" id="min-similarity-pct" step="any" placeholder="empty = not gated"></label>
+    </div>
+    <div class="panel">
+      <h2>Prompt <span class="badge advisory">advisory</span></h2>
+      <p class="note">Auto-filled from ComfyUI PNG metadata when present. Used to describe what the image was supposed to be; it never affects the verdict.</p>
+      <textarea id="prompt" placeholder="Prompt text, or drop a ComfyUI PNG to read it automatically"></textarea>
+      <div id="provenance-summary" class="note"></div>
+    </div>
+    <div class="panel">
+      <h2>Display options</h2>
+      <label>Heatmap gain<input type="number" id="heatmap-gain" step="any" value="8"></label>
+      <label>Overview longest edge (px)<input type="number" id="max-dim" step="1" value="768"></label>
+      <label>Block size for localisation (px)<input type="number" id="block-size" step="1" value="32"></label>
+      <label><input type="checkbox" id="band-context" checked style="width:auto;margin-right:.4rem"> Include prior-study drift bands as context</label>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Verdict and summary</h2>
+    <div id="verdict" class="verdict report">Awaiting inputs</div>
+    <p class="headline" id="headline">Load a reference and a current image to begin.</p>
+    <h3 id="findings-title" class="hidden">What this means</h3>
+    <ul class="findings" id="findings"></ul>
+    <div id="context" class="context hidden"></div>
+    <h3 id="next-title" class="hidden">What to do next</h3>
+    <ul class="findings" id="next-steps"></ul>
+  </section>
+
+  <section class="panel" id="prompt-panel">
+    <h2>Prompt adherence <span class="badge advisory">advisory only</span></h2>
+    <div id="prompt-adherence" class="note"></div>
+  </section>
+
+  <section class="panel" id="elements-panel">
+    <h2>Prompt elements <span class="badge advisory">advisory only</span></h2>
+    <p class="note">Which objects named in the prompt are actually in each image. Live box detection needs a model, which runs in the Python CLI (<code>--detect-backend owlv2</code>). Load that run's <code>report.json</code> here to draw the boxes and fill the checklist.</p>
+    <label style="display:inline-block;margin-bottom:.6rem">Load IRIS detection JSON
+      <input type="file" id="load-detections" accept="application/json,.json" style="display:block;margin-top:.3rem">
+    </label>
+    <div id="elements-content" class="note"></div>
+    <div class="visuals" id="detection-overlays"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Where the difference is</h2>
+    <div id="regions"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Visuals</h2>
+    <p class="note" id="visual-note"></p>
+    <div class="visuals" id="visuals"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Metrics</h2>
+    <div id="metrics-tables"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Raw JSON report</h2>
+    <button id="copy-json" style="background:var(--panel-2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:.35rem .7rem;cursor:pointer;font-size:.82rem;margin-bottom:.6rem">Copy JSON</button>
+    <pre id="json-output">{}</pre>
+  </section>
+
+</main>
+<script>
+"use strict";
+
+/* ==========================================================================
+   metrics — mirrors src/iris/metrics.py. Authoritative definitions live in the
+   Python module; this loop is kept in step by tests/test_browser_parity.py.
+   ========================================================================== */
+
+const SCHEMA_VERSION = "2.0.0";
+
+function percentileSorted(sorted, p) {
+  const n = sorted.length;
+  if (n === 0) return 0;
+  const rank = (p / 100) * (n - 1);
+  const lower = Math.floor(rank);
+  const upper = Math.ceil(rank);
+  const weight = rank - lower;
+  if (upper >= n) return sorted[n - 1];
+  return sorted[lower] * (1 - weight) + sorted[upper] * weight;
+}
+
+function sameSamples(a, b) {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+function computeMetrics(ref, cur, threshold) {
+  const sampleCount = ref.rgb.length;
+  if (sameSamples(ref.rgb, cur.rgb)) {
+    return {
+      bitwise_identical: true, mean_abs: 0, p99_9: 0, max_abs: 0, pct_over_t: 0,
+      per_channel_mean: { R: 0, G: 0, B: 0 }, similarity_pct: 100, within_t_pct: 100,
+      sample_count: sampleCount, threshold: threshold,
+    };
+  }
+
+  const diffs = new Float32Array(sampleCount);
+  const channelSums = [0, 0, 0];
+  const channelCounts = [0, 0, 0];
+  let maxAbs = 0, over = 0, sum = 0;
+
+  for (let i = 0; i < sampleCount; i++) {
+    const d = Math.abs(cur.rgb[i] - ref.rgb[i]);
+    diffs[i] = d;
+    sum += d;
+    if (d > maxAbs) maxAbs = d;
+    if (d > threshold) over++;
+    const ch = i % 3;
+    channelSums[ch] += d;
+    channelCounts[ch]++;
+  }
+
+  const meanAbs = sum / sampleCount;
+  const sorted = Float32Array.from(diffs).sort();
+  const pctOverT = (over / sampleCount) * 100;
+
+  return {
+    bitwise_identical: false,
+    mean_abs: meanAbs,
+    p99_9: percentileSorted(sorted, 99.9),
+    max_abs: maxAbs,
+    pct_over_t: pctOverT,
+    per_channel_mean: {
+      R: channelSums[0] / channelCounts[0],
+      G: channelSums[1] / channelCounts[1],
+      B: channelSums[2] / channelCounts[2],
+    },
+    similarity_pct: 100 * (1 - meanAbs / 255),
+    within_t_pct: 100 - pctOverT,
+    sample_count: sampleCount,
+    threshold: threshold,
+  };
+}
+
+function closerToReferencePct(refVsBase, refVsCur) {
+  if (refVsBase.bitwise_identical) return null;
+  const b = refVsBase.mean_abs, c = refVsCur.mean_abs;
+  if (b === 0) return c === 0 ? 0 : null;
+  return ((b - c) / b) * 100;
+}
+
+function interpretCloser(value) {
+  if (value === null) {
+    return "closer_to_reference_pct is undefined because baseline is bitwise-identical to reference; no baseline drift to compare against.";
+  }
+  if (value > 0) return `Current is ${value.toFixed(2)}% closer to reference than baseline (less pixel drift relative to reference).`;
+  if (value < 0) return `Current is ${Math.abs(value).toFixed(2)}% farther from reference than baseline (more pixel drift relative to reference).`;
+  return "Current and baseline have equal mean absolute drift from reference.";
+}
+
+/* ==========================================================================
+   sanity — mirrors src/iris/sanity.py
+   ========================================================================== */
+
+function checkSanity(rgb, label) {
+  const n = rgb.length;
+  let hasNan = false, hasInf = false, sum = 0, max = -Infinity, isUniform = true;
+  const first = rgb[0];
+  for (let i = 0; i < n; i++) {
+    const v = rgb[i];
+    if (Number.isNaN(v)) hasNan = true;
+    else if (!Number.isFinite(v)) hasInf = true;
+    sum += v;
+    if (v > max) max = v;
+    if (v !== first) isUniform = false;
+  }
+  const frameMean = n ? sum / n : 0;
+  const frameMax = n ? max : 0;
+  const isNearBlack = frameMean < 1.0 && frameMax < 2.0;
+  const issues = [];
+  if (hasNan) issues.push("NaN values detected");
+  if (hasInf) issues.push("Inf values detected");
+  if (isUniform) issues.push("uniform frame (all samples equal)");
+  if (isNearBlack) issues.push("near-black frame (mean < 1.0 and max < 2.0)");
+  return {
+    label, passed: issues.length === 0, has_nan: hasNan, has_inf: hasInf,
+    is_uniform: isUniform, is_near_black: isNearBlack,
+    frame_mean: frameMean, frame_max: frameMax, issues,
+  };
+}
+
+/* ==========================================================================
+   regions — mirrors src/iris/regions.py
+   ========================================================================== */
+
+const CONCENTRATION_TARGET_PCT = 90.0;
+const BROAD_SPREAD_BLOCK_FRACTION = 0.5;
+
+function magnitudeMap(ref, cur) {
+  const { width, height } = ref;
+  const mag = new Float32Array(width * height);
+  for (let i = 0, p = 0; i < ref.rgb.length; i += 3, p++) {
+    const r = Math.abs(cur.rgb[i] - ref.rgb[i]);
+    const g = Math.abs(cur.rgb[i + 1] - ref.rgb[i + 1]);
+    const b = Math.abs(cur.rgb[i + 2] - ref.rgb[i + 2]);
+    mag[p] = Math.max(r, g, b);
+  }
+  return { data: mag, width, height };
+}
+
+function analyzeBlocks(ref, cur, blockSize, topN) {
+  const mag = magnitudeMap(ref, cur);
+  const { width, height } = mag;
+  blockSize = Math.max(1, Math.min(blockSize, width, height));
+  topN = topN || 5;
+
+  let total = 0;
+  for (let i = 0; i < mag.data.length; i++) total += mag.data[i];
+
+  const blocks = [];
+  for (let y0 = 0; y0 < height; y0 += blockSize) {
+    for (let x0 = 0; x0 < width; x0 += blockSize) {
+      const y1 = Math.min(y0 + blockSize, height);
+      const x1 = Math.min(x0 + blockSize, width);
+      let sum = 0, max = 0, count = 0;
+      for (let y = y0; y < y1; y++) {
+        for (let x = x0; x < x1; x++) {
+          const v = mag.data[y * width + x];
+          sum += v;
+          if (v > max) max = v;
+          count++;
+        }
+      }
+      blocks.push({
+        x0, y0, x1, y1,
+        mean_abs: sum / count,
+        max_abs: max,
+        sum_abs: sum,
+        contribution_pct: total > 0 ? (sum / total) * 100 : 0,
+      });
+    }
+  }
+
+  const ranked = blocks.slice().sort((a, b) => b.sum_abs - a.sum_abs);
+  let cumulative = 0, needed = 0;
+  for (const block of ranked) {
+    if (cumulative >= CONCENTRATION_TARGET_PCT) break;
+    cumulative += block.contribution_pct;
+    needed++;
+  }
+
+  return {
+    block_size: blockSize,
+    block_count: blocks.length,
+    grid: { rows: Math.ceil(height / blockSize), cols: Math.ceil(width / blockSize) },
+    frame_shape: { height, width },
+    total_abs: total,
+    concentration_target_pct: CONCENTRATION_TARGET_PCT,
+    blocks_for_target_pct: needed,
+    worst_blocks: ranked.slice(0, topN),
+    _magnitude: mag,
+  };
+}
+
+function describeConcentration(analysis) {
+  if (analysis.total_abs <= 0) return "No absolute difference to localise; the frames are identical.";
+  const top = analysis.worst_blocks;
+  const worst = top[0];
+  const topShare = top.reduce((acc, b) => acc + b.contribution_pct, 0);
+  const location = `x=${worst.x0}-${worst.x1}, y=${worst.y0}-${worst.y1}`;
+  let sentence = `The ${top.length} worst blocks account for ${topShare.toFixed(1)}% of the total absolute difference, and the single largest contributor is ${location} at ${worst.contribution_pct.toFixed(1)}%.`;
+  const needed = analysis.blocks_for_target_pct;
+  const totalBlocks = analysis.block_count;
+  const target = analysis.concentration_target_pct;
+  if (totalBlocks && needed > totalBlocks * BROAD_SPREAD_BLOCK_FRACTION) {
+    sentence += ` Reaching ${target.toFixed(0)}% of the total needs ${needed} of ${totalBlocks} blocks, so a broad low-level difference covers the frame alongside that hot spot.`;
+  } else {
+    sentence += ` Only ${needed} of ${totalBlocks} blocks are needed to reach ${target.toFixed(0)}% of the total, so the difference is genuinely localised.`;
+  }
+  return sentence;
+}
+</script>
+<script>
+"use strict";
+
+/* ==========================================================================
+   provenance — mirrors src/iris/provenance.py. Reads ComfyUI generation
+   parameters straight out of the PNG tEXt/iTXt chunks, so a seed or prompt
+   mismatch is caught before any statistic is computed.
+   ========================================================================== */
+
+const COMPARED_FIELDS = ["positive_prompt", "negative_prompt", "seeds", "samplers", "models"];
+const SEED_KEYS = ["seed", "noise_seed"];
+const SAMPLER_KEYS = ["sampler_name", "scheduler", "steps", "cfg", "denoise"];
+const MODEL_KEYS = ["ckpt_name", "unet_name", "vae_name", "lora_name", "clip_name", "model_name"];
+const MAX_LINK_DEPTH = 16;
+
+function readPngTextChunks(buffer) {
+  const bytes = new Uint8Array(buffer);
+  const signature = [137, 80, 78, 71, 13, 10, 26, 10];
+  for (let i = 0; i < signature.length; i++) {
+    if (bytes[i] !== signature[i]) return {};
+  }
+  const chunks = {};
+  const view = new DataView(buffer);
+  let offset = 8;
+  while (offset + 8 <= bytes.length) {
+    const length = view.getUint32(offset);
+    const type = String.fromCharCode(bytes[offset + 4], bytes[offset + 5], bytes[offset + 6], bytes[offset + 7]);
+    const dataStart = offset + 8;
+    if (dataStart + length > bytes.length) break;
+    if (type === "tEXt" || type === "iTXt") {
+      const data = bytes.subarray(dataStart, dataStart + length);
+      const parsed = type === "tEXt" ? parseTextChunk(data) : parseItxtChunk(data);
+      if (parsed) chunks[parsed.keyword] = parsed.text;
+    }
+    if (type === "IEND") break;
+    offset = dataStart + length + 4;
+  }
+  return chunks;
+}
+
+function latin1(bytes) {
+  let out = "";
+  for (let i = 0; i < bytes.length; i++) out += String.fromCharCode(bytes[i]);
+  return out;
+}
+
+function utf8(bytes) {
+  try { return new TextDecoder("utf-8").decode(bytes); } catch (e) { return latin1(bytes); }
+}
+
+function parseTextChunk(data) {
+  const nul = data.indexOf(0);
+  if (nul < 0) return null;
+  return { keyword: latin1(data.subarray(0, nul)), text: utf8(data.subarray(nul + 1)) };
+}
+
+function parseItxtChunk(data) {
+  const nul = data.indexOf(0);
+  if (nul < 0) return null;
+  const keyword = latin1(data.subarray(0, nul));
+  const compressionFlag = data[nul + 1];
+  if (compressionFlag !== 0) return null; // compressed iTXt needs inflate; skip
+  let cursor = nul + 3;
+  let seen = 0;
+  while (cursor < data.length && seen < 2) {
+    if (data[cursor] === 0) seen++;
+    cursor++;
+  }
+  return { keyword, text: utf8(data.subarray(cursor)) };
+}
+
+function isLink(value) {
+  return Array.isArray(value) && value.length === 2 && (typeof value[0] === "string" || typeof value[0] === "number");
+}
+
+function resolveText(graph, link, depth) {
+  depth = depth || 0;
+  if (depth > MAX_LINK_DEPTH || !isLink(link)) return null;
+  const node = graph[String(link[0])];
+  if (!node || typeof node !== "object") return null;
+  const inputs = node.inputs;
+  if (!inputs || typeof inputs !== "object") return null;
+  if (typeof inputs.text === "string") return inputs.text.trim() || null;
+  if (isLink(inputs.text)) return resolveText(graph, inputs.text, depth + 1);
+  for (const key of ["conditioning", "conditioning_1", "conditioning_to"]) {
+    if (isLink(inputs[key])) {
+      const resolved = resolveText(graph, inputs[key], depth + 1);
+      if (resolved) return resolved;
+    }
+  }
+  return null;
+}
+
+function joinUnique(texts) {
+  const seen = [];
+  for (const text of texts) {
+    const cleaned = (text || "").trim();
+    if (cleaned && seen.indexOf(cleaned) === -1) seen.push(cleaned);
+  }
+  return seen.length ? seen.join(" | ") : null;
+}
+
+function parseComfyGraph(graph) {
+  const seeds = [], samplers = [], models = [], positive = [], negative = [];
+  const nodeIds = Object.keys(graph).sort();
+
+  for (const nodeId of nodeIds) {
+    const node = graph[nodeId];
+    if (!node || typeof node !== "object") continue;
+    const inputs = node.inputs;
+    if (!inputs || typeof inputs !== "object") continue;
+
+    for (const key of SEED_KEYS) {
+      if (typeof inputs[key] === "number") seeds.push({ key, value: inputs[key] });
+    }
+    const samplerEntry = {};
+    let hasSampler = false;
+    for (const key of SAMPLER_KEYS) {
+      if (key in inputs && !isLink(inputs[key])) { samplerEntry[key] = inputs[key]; hasSampler = true; }
+    }
+    if (hasSampler) { samplerEntry.class_type = node.class_type; samplers.push(samplerEntry); }
+
+    for (const key of MODEL_KEYS) {
+      if (typeof inputs[key] === "string") models.push(inputs[key]);
+    }
+    if (isLink(inputs.positive)) {
+      const text = resolveText(graph, inputs.positive);
+      if (text) positive.push(text);
+    }
+    if (isLink(inputs.negative)) {
+      const text = resolveText(graph, inputs.negative);
+      if (text) negative.push(text);
+    }
+  }
+
+  let positiveTexts = positive;
+  if (!positiveTexts.length) {
+    for (const nodeId of nodeIds) {
+      const node = graph[nodeId];
+      if (node && String(node.class_type || "").indexOf("CLIPTextEncode") !== -1) {
+        const value = (node.inputs || {}).text;
+        if (typeof value === "string" && value.trim()) positiveTexts.push(value.trim());
+      }
+    }
+  }
+
+  return {
+    positive_prompt: joinUnique(positiveTexts),
+    negative_prompt: joinUnique(negative),
+    seeds,
+    samplers,
+    models: Array.from(new Set(models)).sort(),
+  };
+}
+
+function extractProvenance(buffer, filename) {
+  const result = {
+    source: filename, available: false, positive_prompt: null, negative_prompt: null,
+    seeds: [], samplers: [], models: [], notes: [],
+  };
+  let chunks;
+  try { chunks = readPngTextChunks(buffer); } catch (e) {
+    result.notes.push("Could not read PNG text chunks: " + e.message);
+    return result;
+  }
+  if (!chunks.prompt) {
+    result.notes.push("No 'prompt' text chunk found; image was likely not written by ComfyUI or metadata was stripped.");
+    return result;
+  }
+  let graph;
+  try { graph = JSON.parse(chunks.prompt); } catch (e) {
+    result.notes.push("'prompt' chunk is not valid JSON: " + e.message);
+    return result;
+  }
+  if (!graph || typeof graph !== "object") {
+    result.notes.push("'prompt' chunk did not decode to a node mapping.");
+    return result;
+  }
+  result.available = true;
+  return Object.assign(result, parseComfyGraph(graph));
+}
+
+function stableKey(value) {
+  if (Array.isArray(value)) {
+    return JSON.stringify(value.map(v => stableKey(v)).sort());
+  }
+  if (value && typeof value === "object") {
+    return JSON.stringify(Object.keys(value).sort().map(k => [k, stableKey(value[k])]));
+  }
+  return JSON.stringify(value === undefined ? null : value);
+}
+
+function diffProvenance(entries) {
+  const roles = Object.keys(entries).filter(role => entries[role] && entries[role].available);
+  if (roles.length < 2) {
+    return {
+      comparable: false, matches: null, differences: [],
+      notes: ["Fewer than two images carry ComfyUI metadata; generation parameters could not be compared."],
+    };
+  }
+  const differences = [];
+  for (const field of COMPARED_FIELDS) {
+    const values = {};
+    const distinct = new Set();
+    for (const role of roles) {
+      values[role] = entries[role][field];
+      distinct.add(stableKey(entries[role][field]));
+    }
+    if (distinct.size > 1) differences.push({ field, values });
+  }
+  return { comparable: true, matches: differences.length === 0, differences, compared_roles: roles.sort(), notes: [] };
+}
+
+/* ==========================================================================
+   prompt-element extraction — mirrors extract_prompt_elements in
+   src/iris/detect.py. Used for the checklist display only; authoritative
+   detection comes from a loaded CLI report.
+   ========================================================================== */
+
+const ELEMENT_STOPWORDS = new Set([
+  "a", "an", "the", "of", "and", "with", "at", "to", "near", "front", "top",
+  "next", "in", "on", "under", "above", "below", "over", "behind", "beside",
+  "by", "between", "from", "into", "onto", "is", "are", "there",
+]);
+
+const ELEMENT_CLAUSE_SPLIT = /,|;|\.|\band\b|\bwith\b|\bin front of\b|\bon top of\b|\bnext to\b|\bin\b|\bon\b|\bunder\b|\babove\b|\bbelow\b|\bover\b|\bbehind\b|\bbeside\b|\bnear\b|\bby\b|\bbetween\b/i;
+
+function extractPromptElements(prompt) {
+  const elements = [];
+  (prompt || "").split(ELEMENT_CLAUSE_SPLIT).forEach(piece => {
+    const words = (piece.match(/[a-zA-Z][a-zA-Z\-]*/g) || []).filter(w => !ELEMENT_STOPWORDS.has(w.toLowerCase()));
+    const phrase = words.join(" ").trim().toLowerCase();
+    if (phrase && elements.indexOf(phrase) === -1) elements.push(phrase);
+  });
+  return elements;
+}
+</script>
+<script>
+"use strict";
+
+/* ==========================================================================
+   narrative — mirrors src/iris/narrative.py. Descriptive only: the wording
+   heuristics below choose phrasing and never influence a verdict.
+   ========================================================================== */
+
+const OBSERVED_HEALTHY_MEAN_ABS = [0.3, 0.6];
+const OBSERVED_DIFFERENT_SEED_MEAN_ABS = [57.0, 84.0];
+const CONCENTRATION_RATIO_HINT = 20.0;
+const CHANNEL_SKEW_RATIO_HINT = 2.0;
+
+function primaryMetrics(comparison) {
+  return comparison.mode === "pairwise" ? comparison.metrics : comparison.reference_vs_current;
+}
+
+function buildHeadline(comparison, metrics) {
+  const reference = comparison.labels.reference || "reference";
+  const current = comparison.labels.current || "current";
+  if (metrics.bitwise_identical) {
+    return `${current} is bitwise identical to ${reference}: every RGB sample matches exactly, so there is no drift to characterise.`;
+  }
+  return `Comparing ${current} against ${reference}: the average RGB sample differs by ${metrics.mean_abs.toFixed(4)} on a 0-255 scale, ${metrics.pct_over_t.toFixed(4)}% of samples differ by more than the ${metrics.threshold} threshold, and the largest single-sample difference is ${metrics.max_abs.toFixed(2)}. The 99.9th percentile sits at ${metrics.p99_9.toFixed(2)}, which is the number to watch, because a localised fault moves the tail long before it moves the mean.`;
+}
+
+function provenanceFindings(diff) {
+  if (!diff) return [];
+  if (!diff.comparable) {
+    return [{ tone: "neutral", text: "Generation parameters could not be compared because fewer than two images carry ComfyUI metadata, so a seed or prompt mismatch cannot be ruled out." }];
+  }
+  if (diff.matches) {
+    return [{ tone: "good", text: "The embedded ComfyUI metadata matches across images: same prompt, seed, sampler settings and models. Any difference measured below therefore comes from the software stack rather than the generation request." }];
+  }
+  const fields = diff.differences.map(d => d.field).join(", ");
+  return [{ tone: "alert", text: `The images were NOT generated with the same configuration: ${fields} differ. The pixel drift below is explained by that difference and is not evidence of a build regression. Fix the harness inputs before interpreting any metric.` }];
+}
+
+function sanityFindings(comparison) {
+  return comparison.sanity.filter(s => !s.passed).map(s => ({
+    tone: "alert",
+    text: `The ${s.label} frame failed a sanity check (${s.issues.join(", ")}). This is a regression in its own right, and including such a frame would distort any threshold derived later.`,
+  }));
+}
+
+function distributionFindings(metrics, comparison) {
+  if (metrics.bitwise_identical) return [];
+  const out = [];
+  if (metrics.mean_abs > 0) {
+    const ratio = metrics.p99_9 / metrics.mean_abs;
+    if (ratio >= CONCENTRATION_RATIO_HINT) {
+      out.push({ tone: "alert", text: `The 99.9th percentile is ${ratio.toFixed(0)} times the mean, so the difference is concentrated in a small number of samples rather than spread evenly across the frame. That shape is characteristic of a localised fault, not of accumulated floating-point rounding.` });
+    } else {
+      out.push({ tone: "neutral", text: `The 99.9th percentile is ${ratio.toFixed(1)} times the mean, so the difference is distributed fairly evenly across the frame rather than concentrated in one region.` });
+    }
+  }
+  if (comparison.regions) out.push({ tone: "neutral", text: describeConcentration(comparison.regions) });
+  return out;
+}
+
+function channelFindings(metrics) {
+  if (metrics.bitwise_identical) return [];
+  const pcm = metrics.per_channel_mean;
+  const names = ["R", "G", "B"];
+  let largest = names[0], smallest = names[0];
+  for (const name of names) {
+    if (pcm[name] > pcm[largest]) largest = name;
+    if (pcm[name] < pcm[smallest]) smallest = name;
+  }
+  const high = pcm[largest], low = pcm[smallest];
+  if (low <= 0) {
+    if (high > 0) {
+      return [{ tone: "alert", text: `Only the ${largest} channel differs; ${smallest} is untouched. A single-channel shift points at a precision or range fault rather than general numeric drift.` }];
+    }
+    return [];
+  }
+  if (high / low >= CHANNEL_SKEW_RATIO_HINT) {
+    return [{ tone: "alert", text: `Drift is unbalanced across channels: ${largest} averages ${high.toFixed(4)} while ${smallest} averages ${low.toFixed(4)}, a ${(high / low).toFixed(1)}x skew. Even drift would affect all three channels similarly, so this suggests a precision or colour-range fault.` }];
+  }
+  return [{ tone: "neutral", text: `Drift is balanced across channels (R ${pcm.R.toFixed(4)}, G ${pcm.G.toFixed(4)}, B ${pcm.B.toFixed(4)}), consistent with general numeric variation rather than a channel-specific fault.` }];
+}
+
+function threeWayFindings(comparison) {
+  if (comparison.mode !== "three_way") return [];
+  const out = [{ tone: "neutral", text: comparison.closer_to_reference_interpretation }];
+  out.push({
+    tone: "neutral",
+    text: `Measured against the reference, baseline drifts by ${comparison.reference_vs_baseline.mean_abs.toFixed(4)} and current by ${comparison.reference_vs_current.mean_abs.toFixed(4)}; the two builds differ from each other by ${comparison.baseline_vs_current.mean_abs.toFixed(4)}. Tracking the reference-relative numbers is what stops a regression from becoming invisible once it is promoted to a new baseline.`,
+  });
+  return out;
+}
+
+function gateFindings(comparison) {
+  const gate = comparison.gate;
+  if (gate.verdict === "REPORT_ONLY") {
+    return [{ tone: "neutral", text: "No gate limits were supplied, so this run reports measurements only and reaches no PASS or FAIL conclusion. That is deliberate: no threshold in this tool is legitimate until the calibration experiments are complete." }];
+  }
+  if (gate.verdict === "FAIL" && !gate.checks.length) {
+    return [{ tone: "alert", text: "The run is marked FAIL because a sanity check failed while gate limits were configured." }];
+  }
+  const failed = gate.checks.filter(c => !c.passed);
+  if (failed.length) {
+    const detail = failed.map(c => `${c.name} measured ${c.actual.toFixed(4)} against a limit of ${c.limit}`).join("; ");
+    return [{ tone: "alert", text: `FAIL against the limits you supplied: ${detail}.` }];
+  }
+  return [{ tone: "good", text: "PASS: every limit you supplied was satisfied. The verdict reflects your limits, not any threshold built into IRIS." }];
+}
+
+function bandContext(metrics) {
+  const mean = metrics.mean_abs;
+  const [hl, hh] = OBSERVED_HEALTHY_MEAN_ABS;
+  const [sl, sh] = OBSERVED_DIFFERENT_SEED_MEAN_ABS;
+  const prefix = "Context from the prior cross-GPU study (observation, not a gate):";
+  if (mean >= hl && mean <= hh) {
+    return `${prefix} a mean of ${mean.toFixed(4)} falls inside the ${hl}-${hh} band previously measured across GPUs on a single build, which was attributed to accumulated floating-point rounding rather than compositional change.`;
+  }
+  if (mean < hl) {
+    return `${prefix} a mean of ${mean.toFixed(4)} is below the ${hl}-${hh} band previously measured across GPUs on a single build, so it is quieter than the observed healthy floor.`;
+  }
+  if (mean >= sl && mean <= sh) {
+    return `${prefix} a mean of ${mean.toFixed(4)} lands in the ${sl}-${sh} band previously measured between images generated from different seeds, which indicates a wholesale compositional change rather than numeric drift. Verify the seed and prompt before investigating the software stack.`;
+  }
+  return `${prefix} a mean of ${mean.toFixed(4)} sits above the ${hl}-${hh} healthy band and below the ${sl}-${sh} different-seed band observed previously. This gap was not characterised by that study, so treat it as uncharted and investigate directly.`;
+}
+
+function nextSteps(comparison, metrics, provDiff) {
+  if (metrics.bitwise_identical) {
+    return ["Nothing to investigate for this pair. Repeated bitwise-identical runs are the evidence needed for the bitwise-identity calibration experiment."];
+  }
+  const steps = [];
+  if (provDiff && provDiff.comparable && !provDiff.matches) {
+    steps.push("Re-run with matched seed, prompt, sampler and checkpoint before drawing any conclusion from the pixel metrics.");
+  }
+  const regions = comparison.regions;
+  if (regions && regions.worst_blocks.length) {
+    const w = regions.worst_blocks[0];
+    steps.push(`Look at the worst-region crop for x=${w.x0}-${w.x1}, y=${w.y0}-${w.y1} to see what changed there, rather than reading the whole-frame difference map.`);
+  }
+  if (comparison.sanity.some(s => !s.passed)) {
+    steps.push("Resolve the sanity failure first; a NaN, uniform or near-black frame makes the remaining statistics meaningless.");
+  }
+  steps.push("Compare this run against previous runs of the same workflow family before treating the numbers as a floor; per-family floors differ, and video workflows compound across frames.");
+  return steps;
+}
+
+function buildNarrative(comparison, provDiff, includeBandContext) {
+  const metrics = primaryMetrics(comparison);
+  const findings = []
+    .concat(provenanceFindings(provDiff))
+    .concat(sanityFindings(comparison))
+    .concat(distributionFindings(metrics, comparison))
+    .concat(channelFindings(metrics))
+    .concat(threeWayFindings(comparison))
+    .concat(gateFindings(comparison));
+
+  return {
+    headline: buildHeadline(comparison, metrics),
+    findings,
+    context: includeBandContext && !metrics.bitwise_identical ? [bandContext(metrics)] : [],
+    next_steps: nextSteps(comparison, metrics, provDiff),
+  };
+}
+</script>
+<script>
+"use strict";
+
+/* ==========================================================================
+   heatmap rendering — mirrors src/iris/heatmap.py. Downscaling uses max-pooling
+   so a small hot patch survives the resize; averaging would hide it.
+   ========================================================================== */
+
+const COLORMAP_CONTROL_POINTS = [
+  [0.00, [0, 0, 4]],
+  [0.25, [87, 16, 110]],
+  [0.50, [188, 55, 84]],
+  [0.75, [249, 142, 9]],
+  [1.00, [252, 255, 164]],
+];
+
+const COLORMAP_LUT = (function () {
+  const lut = new Uint8Array(256 * 3);
+  for (let i = 0; i < 256; i++) {
+    const t = i / 255;
+    let lo = COLORMAP_CONTROL_POINTS[0], hi = COLORMAP_CONTROL_POINTS[COLORMAP_CONTROL_POINTS.length - 1];
+    for (let k = 0; k < COLORMAP_CONTROL_POINTS.length - 1; k++) {
+      if (t >= COLORMAP_CONTROL_POINTS[k][0] && t <= COLORMAP_CONTROL_POINTS[k + 1][0]) {
+        lo = COLORMAP_CONTROL_POINTS[k]; hi = COLORMAP_CONTROL_POINTS[k + 1]; break;
+      }
+    }
+    const span = hi[0] - lo[0];
+    const w = span > 0 ? (t - lo[0]) / span : 0;
+    for (let c = 0; c < 3; c++) lut[i * 3 + c] = Math.round(lo[1][c] + (hi[1][c] - lo[1][c]) * w);
+  }
+  return lut;
+})();
+
+function maxPool(mag, factor) {
+  const { data, width, height } = mag;
+  const outW = Math.ceil(width / factor);
+  const outH = Math.ceil(height / factor);
+  const out = new Float32Array(outW * outH);
+  for (let y = 0; y < outH; y++) {
+    for (let x = 0; x < outW; x++) {
+      let max = 0;
+      for (let dy = 0; dy < factor; dy++) {
+        const sy = y * factor + dy;
+        if (sy >= height) break;
+        for (let dx = 0; dx < factor; dx++) {
+          const sx = x * factor + dx;
+          if (sx >= width) break;
+          const v = data[sy * width + sx];
+          if (v > max) max = v;
+        }
+      }
+      out[y * outW + x] = max;
+    }
+  }
+  return { data: out, width: outW, height: outH };
+}
+
+function renderOverview(mag, gain, maxDim, threshold, title) {
+  const factor = Math.max(1, Math.ceil(Math.max(mag.width, mag.height) / maxDim));
+  const pooled = factor > 1 ? maxPool(mag, factor) : mag;
+  const legendHeight = 30;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = pooled.width;
+  canvas.height = pooled.height + legendHeight;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#121820";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const image = ctx.createImageData(pooled.width, pooled.height);
+  for (let i = 0; i < pooled.data.length; i++) {
+    const v = Math.min(255, Math.round(pooled.data[i] * gain));
+    image.data[i * 4] = COLORMAP_LUT[v * 3];
+    image.data[i * 4 + 1] = COLORMAP_LUT[v * 3 + 1];
+    image.data[i * 4 + 2] = COLORMAP_LUT[v * 3 + 2];
+    image.data[i * 4 + 3] = 255;
+  }
+  ctx.putImageData(image, 0, 0);
+
+  const barY = pooled.height + 5;
+  const barH = 9;
+  for (let x = 0; x < canvas.width; x++) {
+    const v = Math.round((x / Math.max(1, canvas.width - 1)) * 255);
+    ctx.fillStyle = `rgb(${COLORMAP_LUT[v * 3]},${COLORMAP_LUT[v * 3 + 1]},${COLORMAP_LUT[v * 3 + 2]})`;
+    ctx.fillRect(x, barY, 1, barH);
+  }
+
+  const saturation = gain > 0 ? 255 / gain : Infinity;
+  ctx.fillStyle = "#c8d1d9";
+  ctx.font = "11px Consolas, monospace";
+  let caption = `0.00   absolute difference (gain ${gain})   ${saturation.toFixed(2)}+`;
+  if (threshold !== null && threshold !== undefined) caption += `   |   threshold ${threshold}`;
+  if (factor > 1) caption += `   |   max-pooled ${factor}x`;
+  ctx.fillText(caption, 3, barY + barH + 12);
+
+  return {
+    canvas,
+    info: {
+      title,
+      gain,
+      downscale_factor: factor,
+      downscale_method: factor > 1 ? "max-pool" : "none",
+      source_shape: { width: mag.width, height: mag.height },
+      rendered_shape: { width: pooled.width, height: pooled.height },
+      saturation_abs_diff: saturation,
+      legend: `Colour ramp spans 0 to ${saturation.toFixed(2)} absolute difference (0-255 scale) at gain ${gain}; values above saturate.`,
+    },
+  };
+}
+
+function renderWorstRegionCrop(ref, cur, block, gain, maxDim, labels) {
+  const cropW = block.x1 - block.x0;
+  const cropH = block.y1 - block.y0;
+  const zoom = Math.max(1, Math.floor(maxDim / Math.max(cropW, cropH)));
+  const panelW = cropW * zoom;
+  const panelH = cropH * zoom;
+  const labelH = 16;
+  const gutter = 6;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = panelW * 3 + gutter * 2;
+  canvas.height = panelH + labelH;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#121820";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.imageSmoothingEnabled = false;
+
+  const panels = [
+    { kind: "image", source: ref },
+    { kind: "image", source: cur },
+    { kind: "diff" },
+  ];
+
+  panels.forEach((panel, index) => {
+    const tile = document.createElement("canvas");
+    tile.width = cropW;
+    tile.height = cropH;
+    const tctx = tile.getContext("2d");
+    const image = tctx.createImageData(cropW, cropH);
+
+    for (let y = 0; y < cropH; y++) {
+      for (let x = 0; x < cropW; x++) {
+        const src = ((block.y0 + y) * ref.width + (block.x0 + x)) * 3;
+        const dst = (y * cropW + x) * 4;
+        if (panel.kind === "image") {
+          image.data[dst] = panel.source.rgb[src];
+          image.data[dst + 1] = panel.source.rgb[src + 1];
+          image.data[dst + 2] = panel.source.rgb[src + 2];
+        } else {
+          const d = Math.max(
+            Math.abs(cur.rgb[src] - ref.rgb[src]),
+            Math.abs(cur.rgb[src + 1] - ref.rgb[src + 1]),
+            Math.abs(cur.rgb[src + 2] - ref.rgb[src + 2])
+          );
+          const v = Math.min(255, Math.round(d * gain));
+          image.data[dst] = COLORMAP_LUT[v * 3];
+          image.data[dst + 1] = COLORMAP_LUT[v * 3 + 1];
+          image.data[dst + 2] = COLORMAP_LUT[v * 3 + 2];
+        }
+        image.data[dst + 3] = 255;
+      }
+    }
+    tctx.putImageData(image, 0, 0);
+
+    const x = index * (panelW + gutter);
+    ctx.drawImage(tile, 0, 0, cropW, cropH, x, labelH, panelW, panelH);
+    ctx.fillStyle = "#e6edf3";
+    ctx.font = "11px 'Segoe UI', sans-serif";
+    ctx.fillText(labels[index], x + 2, 12);
+  });
+
+  return {
+    canvas,
+    info: { region: { x0: block.x0, y0: block.y0, x1: block.x1, y1: block.y1 }, zoom, gain, panels: labels },
+  };
+}
+</script>
+<script>
+"use strict";
+
+/* ==========================================================================
+   UI wiring and report assembly
+   ========================================================================== */
+
+const state = { reference: null, baseline: null, current: null };
+let loadedDetections = null; // parsed prompt_elements block from a CLI report.json
+
+const DETECT_PALETTE = [
+  [240, 173, 45], [61, 139, 253], [63, 185, 80], [163, 113, 247], [240, 105, 105], [54, 200, 200],
+];
+
+const CLOSENESS_NOTE = "All percentage fields measure closeness to the reference image, not visual quality improvement. similarity_pct = 100 * (1 - mean_abs/255); within_t_pct is the share of samples within the threshold; closer_to_reference_pct (three-way only) indicates how much closer the current image is to the reference than the baseline.";
+const NARRATIVE_NOTE = "The summary and findings are descriptive interpretations of the measured numbers. Wording heuristics choose phrasing only; the gate verdict is driven exclusively by limits supplied by the caller.";
+const ADVISORY_NOTE = "Prompt adherence is advisory only. These scores are uncalibrated and cannot detect build-to-build pixel drift; they never contribute to the gate verdict.";
+
+function toRgbSamples(imageData) {
+  const { data, width, height } = imageData;
+  const rgb = new Float32Array(width * height * 3);
+  for (let i = 0, o = 0; i < data.length; i += 4) {
+    rgb[o++] = data[i];
+    rgb[o++] = data[i + 1];
+    rgb[o++] = data[i + 2];
+  }
+  return { rgb, width, height };
+}
+
+function numberOrNull(id) {
+  const raw = document.getElementById(id).value.trim();
+  return raw === "" ? null : Number(raw);
+}
+
+function evaluateGate(metrics, sanityFailed) {
+  const limits = {
+    max_mean_abs: numberOrNull("max-mean-abs"),
+    max_p99_9: numberOrNull("max-p99-9"),
+    max_max_abs: numberOrNull("max-max-abs"),
+    max_pct_over_t: numberOrNull("max-pct-over-t"),
+    min_similarity_pct: numberOrNull("min-similarity-pct"),
+  };
+  const configured = Object.keys(limits).some(k => limits[k] !== null);
+  if (!configured) {
+    return { verdict: "REPORT_ONLY", passed: null, checks: [], notes: ["No gate limits configured; metrics reported without PASS/FAIL verdict."] };
+  }
+  if (sanityFailed) {
+    return { verdict: "FAIL", passed: false, checks: [], notes: ["Sanity check failure forces FAIL when gate limits are configured."] };
+  }
+  const checks = [];
+  const add = (name, actual, limit, kind) => {
+    checks.push({ name, actual, limit, comparator: kind, passed: kind === "max" ? actual <= limit : actual >= limit });
+  };
+  if (limits.max_mean_abs !== null) add("max_mean_abs", metrics.mean_abs, limits.max_mean_abs, "max");
+  if (limits.max_p99_9 !== null) add("max_p99_9", metrics.p99_9, limits.max_p99_9, "max");
+  if (limits.max_max_abs !== null) add("max_max_abs", metrics.max_abs, limits.max_max_abs, "max");
+  if (limits.max_pct_over_t !== null) add("max_pct_over_t", metrics.pct_over_t, limits.max_pct_over_t, "max");
+  if (limits.min_similarity_pct !== null) add("min_similarity_pct", metrics.similarity_pct, limits.min_similarity_pct, "min");
+  const passed = checks.every(c => c.passed);
+  return { verdict: passed ? "PASS" : "FAIL", passed, checks, notes: [] };
+}
+
+function metricsTable(title, metrics) {
+  const pcm = metrics.per_channel_mean;
+  const row = (name, value) => `<tr><th>${name}</th><td class="num">${value}</td></tr>`;
+  const fixed = (v, n) => (typeof v === "number" ? v.toFixed(n) : v);
+  return `<h3>${title}</h3><table><tbody>
+    ${row("bitwise_identical", metrics.bitwise_identical)}
+    ${row("mean_abs", fixed(metrics.mean_abs, 6))}
+    ${row("p99_9", fixed(metrics.p99_9, 4))}
+    ${row("max_abs", fixed(metrics.max_abs, 4))}
+    ${row("pct_over_t", fixed(metrics.pct_over_t, 6))}
+    ${row("per_channel_mean R", fixed(pcm.R, 6))}
+    ${row("per_channel_mean G", fixed(pcm.G, 6))}
+    ${row("per_channel_mean B", fixed(pcm.B, 6))}
+    ${row("similarity_pct", fixed(metrics.similarity_pct, 6))}
+    ${row("within_t_pct", fixed(metrics.within_t_pct, 6))}
+    ${row("sample_count", metrics.sample_count)}
+    ${row("threshold", metrics.threshold)}
+  </tbody></table>`;
+}
+
+function regionsTable(regions) {
+  if (!regions) return "";
+  const header = `<p class="note">Block grid ${regions.grid.rows}x${regions.grid.cols} of ${regions.block_size}px blocks over a ${regions.frame_shape.width}x${regions.frame_shape.height} frame.</p>`;
+  if (regions.total_abs <= 0) return header + '<p class="note">No absolute difference to localise.</p>';
+  const rows = regions.worst_blocks.map(b =>
+    `<tr><td>x ${b.x0}-${b.x1}, y ${b.y0}-${b.y1}</td><td class="num">${b.contribution_pct.toFixed(2)}%</td><td class="num">${b.mean_abs.toFixed(3)}</td><td class="num">${b.max_abs.toFixed(2)}</td></tr>`
+  ).join("");
+  return header + `<table><thead><tr><th>region</th><th class="num">share of total</th><th class="num">mean</th><th class="num">max</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function renderPromptAdherence(prompt, promptSource, provDiff) {
+  const target = document.getElementById("prompt-adherence");
+  const parts = [];
+  parts.push(`<p><strong>Prompt source:</strong> ${promptSource}</p>`);
+  if (prompt) {
+    parts.push(`<p><strong>Prompt:</strong> ${escapeHtml(prompt)}</p>`);
+  } else {
+    parts.push('<p>No prompt available. Type one above, or drop a ComfyUI PNG that still carries its metadata.</p>');
+  }
+  parts.push(`<p>Scoring how well each image matches this prompt needs a vision-language model, which cannot run in a static page. Use the Python CLI with <code>--semantic-backend local-clip</code> for that. ${ADVISORY_NOTE}</p>`);
+
+  if (provDiff && provDiff.comparable) {
+    if (provDiff.matches) {
+      parts.push('<p style="color:#a7e3b0">Generation parameters match across all loaded images, so both were asked for the same picture.</p>');
+    } else {
+      const rows = provDiff.differences.map(d => {
+        const values = Object.keys(d.values).map(role => `<li><em>${role}</em>: <code>${escapeHtml(JSON.stringify(d.values[role]))}</code></li>`).join("");
+        return `<li><strong>${d.field}</strong><ul>${values}</ul></li>`;
+      }).join("");
+      parts.push(`<p style="color:#ffb4ae">These images were not generated the same way, so they were never expected to match:</p><ul class="findings">${rows}</ul>`);
+    }
+  }
+  target.innerHTML = parts.join("");
+}
+
+function escapeHtml(text) {
+  const div = document.createElement("div");
+  div.textContent = String(text === null || text === undefined ? "" : text);
+  return div.innerHTML;
+}
+
+function buildPromptElementsBlock(prompt, promptSource) {
+  const parsed = extractPromptElements(prompt || "");
+  if (loadedDetections) {
+    const block = JSON.parse(JSON.stringify(loadedDetections));
+    block.notes = (block.notes || []).concat(["Loaded from a CLI detection report; boxes drawn from that run."]);
+    return block;
+  }
+  return {
+    verdict: "UNAVAILABLE",
+    backend: "none (browser)",
+    prompt: prompt || null,
+    prompt_source: promptSource,
+    elements: parsed,
+    per_image: {},
+    missing: {},
+    findings: [],
+    notes: [
+      "Prompt-element detection is advisory only and never affects the verdict.",
+      "Live box detection needs a model; run the Python CLI with --detect-backend owlv2, then load its report.json here.",
+    ],
+  };
+}
+
+function renderPromptElements(block) {
+  const content = document.getElementById("elements-content");
+  const overlays = document.getElementById("detection-overlays");
+  overlays.innerHTML = "";
+
+  if (!block.elements || !block.elements.length) {
+    content.innerHTML = "<p>No checkable object phrases in the prompt yet. Type a prompt or load a ComfyUI PNG.</p>";
+    return;
+  }
+
+  if (block.verdict !== "ADVISORY" || !Object.keys(block.per_image || {}).length) {
+    const items = block.elements.map(e => `<li>${escapeHtml(e)} <span class="badge">unknown — run detector</span></li>`).join("");
+    content.innerHTML = `<p>Expected prompt elements:</p><ul class="findings">${items}</ul>`
+      + `<p>${escapeHtml(block.notes[block.notes.length - 1] || "")}</p>`;
+    return;
+  }
+
+  const parts = [];
+  for (const role of Object.keys(block.per_image)) {
+    const result = block.per_image[role];
+    const rows = result.elements.map(e => {
+      const mark = e.present
+        ? `<span class="good">detected (${(e.confidence || 0).toFixed(2)})</span>`
+        : `<span class="alert">MISSING</span>`;
+      return `<li>${escapeHtml(e.element)} — ${mark}</li>`;
+    }).join("");
+    parts.push(`<h3>${escapeHtml(role)}</h3><ul class="findings">${rows}</ul>`);
+
+    const image = state[role];
+    if (image) {
+      const canvas = drawDetectionOverlay(image, result);
+      overlays.appendChild(labelledCanvas(`Detection overlay (${role})`, canvas));
+    }
+  }
+  content.innerHTML = parts.join("");
+}
+
+function drawDetectionOverlay(image, result) {
+  const canvas = document.createElement("canvas");
+  canvas.width = image.width;
+  canvas.height = image.height;
+  const ctx = canvas.getContext("2d");
+
+  const rgba = ctx.createImageData(image.width, image.height);
+  for (let i = 0, p = 0; p < image.rgb.length; i += 4, p += 3) {
+    rgba.data[i] = image.rgb[p];
+    rgba.data[i + 1] = image.rgb[p + 1];
+    rgba.data[i + 2] = image.rgb[p + 2];
+    rgba.data[i + 3] = 255;
+  }
+  ctx.putImageData(rgba, 0, 0);
+
+  // Detection boxes are in the pixel space of the image the CLI ran on; scale to this canvas.
+  const shape = result.image_shape || { width: image.width, height: image.height };
+  const sx = image.width / shape.width;
+  const sy = image.height / shape.height;
+
+  ctx.lineWidth = Math.max(2, Math.round(image.width / 300));
+  ctx.font = "14px 'Segoe UI', sans-serif";
+  (result.elements || []).forEach((element, index) => {
+    const color = DETECT_PALETTE[index % DETECT_PALETTE.length];
+    const stroke = `rgb(${color[0]},${color[1]},${color[2]})`;
+    (element.boxes || []).forEach(box => {
+      const x = box.x0 * sx, y = box.y0 * sy;
+      const w = (box.x1 - box.x0) * sx, h = (box.y1 - box.y0) * sy;
+      ctx.strokeStyle = stroke;
+      ctx.strokeRect(x, y, w, h);
+      const label = `${element.element} ${(box.score || 0).toFixed(2)}`;
+      const tw = ctx.measureText(label).width + 6;
+      ctx.fillStyle = stroke;
+      ctx.fillRect(x, Math.max(0, y - 18), tw, 18);
+      ctx.fillStyle = "#0a0c10";
+      ctx.fillText(label, x + 3, Math.max(12, y - 4));
+    });
+  });
+  return canvas;
+}
+
+function recompute() {
+  const thresholdRaw = document.getElementById("threshold").value.trim();
+  const verdictEl = document.getElementById("verdict");
+  const headlineEl = document.getElementById("headline");
+
+  if (!state.reference || !state.current || thresholdRaw === "") {
+    verdictEl.textContent = "Awaiting inputs";
+    verdictEl.className = "verdict report";
+    headlineEl.textContent = state.reference && state.current
+      ? "Enter a threshold to compute metrics."
+      : "Load a reference and a current image to begin.";
+    ["findings", "next-steps", "regions", "visuals", "metrics-tables"].forEach(id => {
+      document.getElementById(id).innerHTML = "";
+    });
+    ["findings-title", "next-title", "context"].forEach(id => document.getElementById(id).classList.add("hidden"));
+    document.getElementById("json-output").textContent = "{}";
+    return;
+  }
+
+  if (state.reference.width !== state.current.width || state.reference.height !== state.current.height) {
+    verdictEl.textContent = "Shape mismatch";
+    verdictEl.className = "verdict fail";
+    headlineEl.textContent = `Reference is ${state.reference.width}x${state.reference.height} but current is ${state.current.width}x${state.current.height}. Pixel comparison needs identical dimensions.`;
+    return;
+  }
+
+  const threshold = Number(thresholdRaw);
+  const gain = Number(document.getElementById("heatmap-gain").value) || 8;
+  const maxDim = Number(document.getElementById("max-dim").value) || 768;
+  const blockSize = Number(document.getElementById("block-size").value) || 32;
+  const includeBands = document.getElementById("band-context").checked;
+
+  const labels = {
+    reference: document.getElementById("reference-label").value || "reference",
+    current: document.getElementById("current-label").value || "current",
+  };
+  if (state.baseline) labels.baseline = document.getElementById("baseline-label").value || "baseline";
+
+  const sanity = [checkSanity(state.reference.rgb, labels.reference)];
+  if (state.baseline) sanity.push(checkSanity(state.baseline.rgb, labels.baseline));
+  sanity.push(checkSanity(state.current.rgb, labels.current));
+  const sanityFailed = sanity.some(s => !s.passed);
+
+  const regions = analyzeBlocks(state.reference, state.current, blockSize, 5);
+  const magnitude = regions._magnitude;
+
+  let comparison;
+  if (state.baseline && state.baseline.width === state.reference.width && state.baseline.height === state.reference.height) {
+    const refVsBase = computeMetrics(state.reference, state.baseline, threshold);
+    const refVsCur = computeMetrics(state.reference, state.current, threshold);
+    const baseVsCur = computeMetrics(state.baseline, state.current, threshold);
+    const closer = closerToReferencePct(refVsBase, refVsCur);
+    comparison = {
+      mode: "three_way", labels, sanity, regions,
+      reference_vs_baseline: refVsBase,
+      reference_vs_current: refVsCur,
+      baseline_vs_current: baseVsCur,
+      closer_to_reference_pct: closer,
+      closer_to_reference_interpretation: interpretCloser(closer),
+      gate: evaluateGate(refVsCur, sanityFailed),
+    };
+  } else {
+    const metrics = computeMetrics(state.reference, state.current, threshold);
+    comparison = { mode: "pairwise", labels, sanity, regions, metrics, gate: evaluateGate(metrics, sanityFailed) };
+  }
+
+  const provEntries = {};
+  ["reference", "baseline", "current"].forEach(role => {
+    if (state[role] && state[role].provenance) provEntries[role] = state[role].provenance;
+  });
+  const provDiff = Object.keys(provEntries).length ? diffProvenance(provEntries) : null;
+
+  let prompt = document.getElementById("prompt").value.trim();
+  let promptSource = prompt ? "typed into this page" : "unavailable";
+  if (!prompt) {
+    for (const role of ["reference", "baseline", "current"]) {
+      const p = provEntries[role];
+      if (p && p.positive_prompt) {
+        prompt = p.positive_prompt;
+        promptSource = `extracted from ${role} PNG metadata`;
+        document.getElementById("prompt").value = prompt;
+        break;
+      }
+    }
+  }
+
+  const narrative = buildNarrative(comparison, provDiff, includeBands);
+
+  verdictEl.textContent = comparison.gate.verdict;
+  verdictEl.className = "verdict " + (comparison.gate.verdict === "PASS" ? "pass" : comparison.gate.verdict === "FAIL" ? "fail" : "report");
+  headlineEl.textContent = narrative.headline;
+
+  const findingsEl = document.getElementById("findings");
+  findingsEl.innerHTML = narrative.findings.map(f => `<li class="${f.tone}">${escapeHtml(f.text)}</li>`).join("");
+  document.getElementById("findings-title").classList.toggle("hidden", !narrative.findings.length);
+
+  const contextEl = document.getElementById("context");
+  contextEl.innerHTML = narrative.context.map(escapeHtml).join("<br>");
+  contextEl.classList.toggle("hidden", !narrative.context.length);
+
+  const nextEl = document.getElementById("next-steps");
+  nextEl.innerHTML = narrative.next_steps.map(s => `<li>${escapeHtml(s)}</li>`).join("");
+  document.getElementById("next-title").classList.toggle("hidden", !narrative.next_steps.length);
+
+  renderPromptAdherence(prompt, promptSource, provDiff);
+
+  const promptElements = buildPromptElementsBlock(prompt, promptSource);
+  renderPromptElements(promptElements);
+
+  document.getElementById("regions").innerHTML = regionsTable(regions);
+
+  const visuals = document.getElementById("visuals");
+  visuals.innerHTML = "";
+  const overview = renderOverview(magnitude, gain, maxDim, threshold, "reference vs current");
+  document.getElementById("visual-note").textContent = overview.info.legend + (overview.info.downscale_factor > 1
+    ? ` Downscaled ${overview.info.downscale_factor}x by max-pooling so small hot spots survive the resize.`
+    : "");
+  visuals.appendChild(labelledCanvas("Difference overview (reference vs current)", overview.canvas));
+
+  const crops = [];
+  regions.worst_blocks.slice(0, 2).forEach((block, index) => {
+    if (block.max_abs <= 0) return;
+    const crop = renderWorstRegionCrop(state.reference, state.current, block, gain, 256, [labels.reference, labels.current, "difference"]);
+    crops.push(crop.info);
+    visuals.appendChild(labelledCanvas(
+      `Worst region ${index + 1}: x ${block.x0}-${block.x1}, y ${block.y0}-${block.y1} at ${crop.info.zoom}x zoom`,
+      crop.canvas
+    ));
+  });
+
+  const metricsEl = document.getElementById("metrics-tables");
+  if (comparison.mode === "three_way") {
+    metricsEl.innerHTML =
+      metricsTable("reference_vs_baseline", comparison.reference_vs_baseline) +
+      metricsTable("reference_vs_current", comparison.reference_vs_current) +
+      metricsTable("baseline_vs_current", comparison.baseline_vs_current) +
+      `<p><strong>closer_to_reference_pct:</strong> ${comparison.closer_to_reference_pct}</p>`;
+  } else {
+    metricsEl.innerHTML = metricsTable("reference_vs_current", comparison.metrics);
+  }
+
+  const report = {
+    schema_version: SCHEMA_VERSION,
+    timestamp_utc: new Date().toISOString(),
+    mode: comparison.mode,
+    labels,
+    summary: narrative,
+    sanity,
+    regions: stripInternal(regions),
+    gate: comparison.gate,
+    prompt_adherence: {
+      verdict: "UNAVAILABLE",
+      backend: "none (browser)",
+      prompt: prompt || null,
+      prompt_source: promptSource,
+      per_image: {},
+      divergence: null,
+      findings: [],
+      notes: [ADVISORY_NOTE, "No vision-language backend runs in the browser; use the Python CLI for adherence scores."],
+    },
+    prompt_elements: promptElements,
+    heatmaps: { overview: overview.info, worst_regions: crops },
+    notes: [CLOSENESS_NOTE, NARRATIVE_NOTE],
+  };
+  if (provDiff) { report.provenance = provEntries; report.provenance_diff = provDiff; }
+  if (comparison.mode === "pairwise") {
+    report.metrics = comparison.metrics;
+  } else {
+    report.reference_vs_baseline = comparison.reference_vs_baseline;
+    report.reference_vs_current = comparison.reference_vs_current;
+    report.baseline_vs_current = comparison.baseline_vs_current;
+    report.closer_to_reference_pct = comparison.closer_to_reference_pct;
+    report.closer_to_reference_interpretation = comparison.closer_to_reference_interpretation;
+  }
+
+  document.getElementById("json-output").textContent = JSON.stringify(report, null, 2);
+}
+
+function stripInternal(regions) {
+  const copy = Object.assign({}, regions);
+  delete copy._magnitude;
+  return copy;
+}
+
+function labelledCanvas(caption, canvas) {
+  const wrap = document.createElement("div");
+  const p = document.createElement("p");
+  p.className = "note";
+  p.textContent = caption;
+  wrap.appendChild(p);
+  wrap.appendChild(canvas);
+  return wrap;
+}
+
+function loadFile(file, slot) {
+  const zone = document.querySelector(`[data-drop="${slot}"]`);
+  file.arrayBuffer().then(buffer => {
+    const provenance = extractProvenance(buffer, file.name);
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      ctx.drawImage(img, 0, 0);
+      const samples = toRgbSamples(ctx.getImageData(0, 0, canvas.width, canvas.height));
+      samples.provenance = provenance;
+      state[slot] = samples;
+
+      const preview = document.getElementById(`${slot}-preview`);
+      preview.src = url;
+      preview.classList.remove("hidden");
+      zone.classList.add("loaded");
+      zone.textContent = `${file.name} — ${img.naturalWidth}x${img.naturalHeight}${provenance.available ? " — ComfyUI metadata found" : ""}`;
+
+      updateProvenanceSummary();
+      recompute();
+    };
+    img.onerror = () => {
+      zone.textContent = `${file.name} — could not decode as an image`;
+    };
+    img.src = url;
+  });
+}
+
+function updateProvenanceSummary() {
+  const lines = [];
+  ["reference", "baseline", "current"].forEach(role => {
+    const p = state[role] && state[role].provenance;
+    if (!p) return;
+    if (p.available) {
+      const seed = p.seeds.length ? p.seeds.map(s => s.value).join(", ") : "none";
+      lines.push(`<strong>${role}</strong>: seed ${seed}${p.models.length ? ", " + escapeHtml(p.models.join(", ")) : ""}`);
+    } else {
+      lines.push(`<strong>${role}</strong>: no ComfyUI metadata`);
+    }
+  });
+  document.getElementById("provenance-summary").innerHTML = lines.join("<br>");
+}
+
+document.querySelectorAll(".dropzone").forEach(zone => {
+  const slot = zone.dataset.drop;
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/png,image/jpeg";
+  input.className = "hidden";
+  zone.appendChild(input);
+
+  zone.addEventListener("click", () => input.click());
+  input.addEventListener("change", () => { if (input.files[0]) loadFile(input.files[0], slot); });
+  zone.addEventListener("dragover", e => { e.preventDefault(); zone.classList.add("dragover"); });
+  zone.addEventListener("dragleave", () => zone.classList.remove("dragover"));
+  zone.addEventListener("drop", e => {
+    e.preventDefault();
+    zone.classList.remove("dragover");
+    if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0], slot);
+  });
+});
+
+document.querySelectorAll("input, textarea").forEach(el => {
+  el.addEventListener("input", recompute);
+  el.addEventListener("change", recompute);
+});
+
+document.getElementById("load-detections").addEventListener("change", (event) => {
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+  file.text().then(text => {
+    let report;
+    try { report = JSON.parse(text); } catch (e) {
+      document.getElementById("elements-content").innerHTML = `<p class="alert">Could not parse JSON: ${escapeHtml(e.message)}</p>`;
+      return;
+    }
+    const block = report.prompt_elements || report;
+    if (!block || !block.per_image) {
+      document.getElementById("elements-content").innerHTML = '<p class="alert">That JSON has no prompt_elements.per_image block. Load a report from a CLI run that used --detect-backend.</p>';
+      return;
+    }
+    loadedDetections = block;
+    if (block.prompt && !document.getElementById("prompt").value.trim()) {
+      document.getElementById("prompt").value = block.prompt;
+    }
+    recompute();
+  });
+});
+
+document.getElementById("copy-json").addEventListener("click", () => {
+  const text = document.getElementById("json-output").textContent;
+  navigator.clipboard.writeText(text).then(
+    () => { document.getElementById("copy-json").textContent = "Copied"; setTimeout(() => { document.getElementById("copy-json").textContent = "Copy JSON"; }, 1200); },
+    () => { document.getElementById("copy-json").textContent = "Copy failed"; }
+  );
+});
+
+recompute();
+</script>
+</body>
+</html>
