@@ -66,6 +66,71 @@ canvas { image-rendering: pixelated; border: 1px solid var(--border); border-rad
 details { margin-top: .5rem; }
 summary { cursor: pointer; color: var(--muted); font-size: .85rem; }
 .hidden { display: none; }
+
+/* Plain-language summary panel */
+.plain-summary-headline { font-size: 1.55rem; font-weight: 700; margin: 0 0 .25rem; line-height: 1.25; }
+.plain-summary-subline { color: var(--muted); font-size: 1rem; margin: 0 0 1.2rem; }
+.bar-row { margin-bottom: 1rem; }
+.bar-title { font-size: .84rem; font-weight: 600; margin: 0 0 .35rem; }
+.bar-track {
+  position: relative; height: 24px; background: var(--panel-2); border: 1px solid var(--border);
+  border-radius: 5px; overflow: hidden;
+}
+.bar-fill {
+  height: 100%; width: 0; border-radius: 4px; background: linear-gradient(90deg, #2563eb, var(--accent));
+  transition: width 600ms ease-out;
+}
+.bar-value {
+  position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+  font-family: var(--mono); font-size: .76rem; color: var(--text); text-shadow: 0 0 4px var(--panel-2);
+}
+.bar-caption { margin: .3rem 0 0; font-size: .82rem; color: var(--muted); max-width: 70ch; }
+.stacked-bar {
+  display: flex; width: 100%; height: 30px; border-radius: 5px; overflow: hidden;
+  border: 1px solid var(--border); margin-top: .35rem;
+}
+.stacked-segment {
+  height: 100%; width: 0; transition: width 600ms ease-out; display: flex; align-items: center;
+  justify-content: center; font-size: .62rem; color: #0f1419; font-weight: 700; overflow: hidden;
+  white-space: nowrap; min-width: 0;
+}
+.stacked-segment[data-bucket="0"] { background: #30363d; color: var(--muted); }
+.stacked-segment[data-bucket="1"] { background: #388bfd; }
+.stacked-segment[data-bucket="2"] { background: #58a6ff; }
+.stacked-segment[data-bucket="3_4"] { background: #d29922; }
+.stacked-segment[data-bucket="5_8"] { background: #f0883e; }
+.stacked-segment[data-bucket="gt_8"] { background: #f85149; }
+.stacked-legend { display: flex; flex-wrap: wrap; gap: .45rem .8rem; margin-top: .45rem; font-size: .74rem; color: var(--muted); }
+.stacked-legend span::before {
+  content: ""; display: inline-block; width: .65rem; height: .65rem; border-radius: 2px;
+  margin-right: .25rem; vertical-align: middle;
+}
+.direction-block { margin-top: 1.1rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+.direction-track {
+  position: relative; height: 18px; background: var(--panel-2); border-radius: 999px;
+  border: 1px solid var(--border); overflow: hidden; margin: .5rem 0 .35rem;
+}
+.direction-center {
+  position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; background: var(--border);
+  transform: translateX(-50%); z-index: 2;
+}
+.direction-fill {
+  position: absolute; top: 0; bottom: 0; width: 0; transition: width 600ms ease-out;
+}
+.direction-fill-left {
+  right: 50%; background: linear-gradient(270deg, #58a6ff, #388bfd); border-radius: 999px 0 0 999px;
+}
+.direction-fill-right {
+  left: 50%; background: linear-gradient(90deg, #f0883e, #f85149); border-radius: 0 999px 999px 0;
+}
+.direction-labels {
+  display: flex; justify-content: space-between; font-size: .72rem; color: var(--muted);
+}
+.direction-text { margin: .55rem 0 0; font-size: .86rem; color: var(--text); }
+
+@media (prefers-reduced-motion: reduce) {
+  .bar-fill, .stacked-segment, .direction-fill { transition: none; }
+}
 </style>
 </head>
 <body>
@@ -122,6 +187,13 @@ summary { cursor: pointer; color: var(--muted); font-size: .85rem; }
     </div>
   </section>
 
+  <section class="panel" id="plain-summary">
+    <h2>At a glance</h2>
+    <div id="plain-summary-content">
+      <p class="plain-summary-subline">Load a reference and a current image to see a plain-language summary.</p>
+    </div>
+  </section>
+
   <section class="panel">
     <h2>Verdict and summary</h2>
     <div id="verdict" class="verdict report">Awaiting inputs</div>
@@ -159,16 +231,21 @@ summary { cursor: pointer; color: var(--muted); font-size: .85rem; }
     <div class="visuals" id="visuals"></div>
   </section>
 
-  <section class="panel">
+  <details open class="panel">
+    <summary><h2 style="display:inline;margin:0;font-size:.78rem;color:var(--muted);text-transform:uppercase;letter-spacing:.1em">Detailed metrics and raw report</h2></summary>
+    <div style="margin-top:.8rem">
+  <section class="panel" style="border:none;padding:0;background:transparent">
     <h2>Metrics</h2>
     <div id="metrics-tables"></div>
   </section>
 
-  <section class="panel">
+  <section class="panel" style="border:none;padding:0;background:transparent;margin-top:1rem">
     <h2>Raw JSON report</h2>
     <button id="copy-json" style="background:var(--panel-2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:.35rem .7rem;cursor:pointer;font-size:.82rem;margin-bottom:.6rem">Copy JSON</button>
     <pre id="json-output">{}</pre>
   </section>
+    </div>
+  </details>
 
 </main>
 <script>
@@ -179,7 +256,7 @@ summary { cursor: pointer; color: var(--muted); font-size: .85rem; }
    Python module; this loop is kept in step by tests/test_browser_parity.py.
    ========================================================================== */
 
-const SCHEMA_VERSION = "2.0.0";
+const SCHEMA_VERSION = "2.1.0";
 
 function percentileSorted(sorted, p) {
   const n = sorted.length;
@@ -198,47 +275,97 @@ function sameSamples(a, b) {
   return true;
 }
 
+function pixelLevelDistribution(ref, cur) {
+  const pixelCount = ref.width * ref.height;
+  const buckets = { "0": 0, "1": 0, "2": 0, "3_4": 0, "5_8": 0, "gt_8": 0 };
+  let changed = 0;
+  for (let p = 0; p < pixelCount; p++) {
+    const i = p * 3;
+    const mag = Math.max(
+      Math.abs(cur.rgb[i] - ref.rgb[i]),
+      Math.abs(cur.rgb[i + 1] - ref.rgb[i + 1]),
+      Math.abs(cur.rgb[i + 2] - ref.rgb[i + 2])
+    );
+    if (mag > 0) changed++;
+    if (mag === 0) buckets["0"]++;
+    else if (mag <= 1) buckets["1"]++;
+    else if (mag <= 2) buckets["2"]++;
+    else if (mag <= 4) buckets["3_4"]++;
+    else if (mag <= 8) buckets["5_8"]++;
+    else buckets["gt_8"]++;
+  }
+  const distribution = {};
+  for (const key of Object.keys(buckets)) {
+    distribution[key] = pixelCount ? (buckets[key] / pixelCount) * 100 : 0;
+  }
+  return {
+    pct_pixels_changed: pixelCount ? (changed / pixelCount) * 100 : 0,
+    level_distribution: distribution,
+  };
+}
+
 function computeMetrics(ref, cur, threshold) {
   const sampleCount = ref.rgb.length;
   if (sameSamples(ref.rgb, cur.rgb)) {
     return {
-      bitwise_identical: true, mean_abs: 0, p99_9: 0, max_abs: 0, pct_over_t: 0,
-      per_channel_mean: { R: 0, G: 0, B: 0 }, similarity_pct: 100, within_t_pct: 100,
+      bitwise_identical: true, mean_abs: 0, mean_signed: 0, p99_9: 0, max_abs: 0, pct_over_t: 0,
+      pct_pixels_changed: 0,
+      level_distribution: { "0": 100, "1": 0, "2": 0, "3_4": 0, "5_8": 0, "gt_8": 0 },
+      per_channel_mean: { R: 0, G: 0, B: 0 },
+      per_channel_mean_signed: { R: 0, G: 0, B: 0 },
+      signed_ratio: 0,
+      similarity_pct: 100, within_t_pct: 100,
       sample_count: sampleCount, threshold: threshold,
     };
   }
 
   const diffs = new Float32Array(sampleCount);
   const channelSums = [0, 0, 0];
+  const channelSignedSums = [0, 0, 0];
   const channelCounts = [0, 0, 0];
-  let maxAbs = 0, over = 0, sum = 0;
+  let maxAbs = 0, over = 0, sum = 0, signedSum = 0;
 
   for (let i = 0; i < sampleCount; i++) {
-    const d = Math.abs(cur.rgb[i] - ref.rgb[i]);
+    const signed = cur.rgb[i] - ref.rgb[i];
+    signedSum += signed;
+    const d = Math.abs(signed);
     diffs[i] = d;
     sum += d;
     if (d > maxAbs) maxAbs = d;
     if (d > threshold) over++;
     const ch = i % 3;
     channelSums[ch] += d;
+    channelSignedSums[ch] += signed;
     channelCounts[ch]++;
   }
 
   const meanAbs = sum / sampleCount;
+  const meanSigned = signedSum / sampleCount;
   const sorted = Float32Array.from(diffs).sort();
   const pctOverT = (over / sampleCount) * 100;
+  const signedRatio = meanAbs > 0 ? Math.abs(meanSigned) / meanAbs : 0;
+  const pixelStats = pixelLevelDistribution(ref, cur);
 
   return {
     bitwise_identical: false,
     mean_abs: meanAbs,
+    mean_signed: meanSigned,
     p99_9: percentileSorted(sorted, 99.9),
     max_abs: maxAbs,
     pct_over_t: pctOverT,
+    pct_pixels_changed: pixelStats.pct_pixels_changed,
+    level_distribution: pixelStats.level_distribution,
     per_channel_mean: {
       R: channelSums[0] / channelCounts[0],
       G: channelSums[1] / channelCounts[1],
       B: channelSums[2] / channelCounts[2],
     },
+    per_channel_mean_signed: {
+      R: channelSignedSums[0] / channelCounts[0],
+      G: channelSignedSums[1] / channelCounts[1],
+      B: channelSignedSums[2] / channelCounts[2],
+    },
+    signed_ratio: signedRatio,
     similarity_pct: 100 * (1 - meanAbs / 255),
     within_t_pct: 100 - pctOverT,
     sample_count: sampleCount,
@@ -633,6 +760,9 @@ const OBSERVED_HEALTHY_MEAN_ABS = [0.3, 0.6];
 const OBSERVED_DIFFERENT_SEED_MEAN_ABS = [57.0, 84.0];
 const CONCENTRATION_RATIO_HINT = 20.0;
 const CHANNEL_SKEW_RATIO_HINT = 2.0;
+const SIGNED_RATIO_UNIFORM_HINT = 0.8;
+const SIGNED_RATIO_SCATTER_HINT = 0.3;
+const CHANGED_FRACTION_UNIFORM_WORD_HINT = 50.0;
 
 function primaryMetrics(comparison) {
   return comparison.mode === "pairwise" ? comparison.metrics : comparison.reference_vs_current;
@@ -679,6 +809,27 @@ function distributionFindings(metrics, comparison) {
   }
   if (comparison.regions) out.push({ tone: "neutral", text: describeConcentration(comparison.regions) });
   return out;
+}
+
+function signedDirectionFindings(metrics) {
+  if (metrics.bitwise_identical || metrics.mean_abs <= 0) return [];
+  const signedRatio = metrics.signed_ratio;
+  const meanSigned = metrics.mean_signed;
+  const meanAbs = metrics.mean_abs;
+  const changedFraction = metrics.pct_over_t;
+
+  if (signedRatio > SIGNED_RATIO_UNIFORM_HINT) {
+    const direction = meanSigned > 0 ? "brighter" : "darker";
+    const magnitude = Math.abs(meanSigned);
+    if (changedFraction >= CHANGED_FRACTION_UNIFORM_WORD_HINT) {
+      return [{ tone: "neutral", text: `The changes all go one way: the frame is uniformly ${direction} by about ${magnitude.toFixed(4)} on average on the 0-255 scale, which points at a scaling or conversion step rather than random scatter.` }];
+    }
+    return [{ tone: "neutral", text: `Every pixel that changed moved the same way, averaging ${magnitude.toFixed(4)} ${direction} where it differs, which points at a directed shift in the affected region rather than random scatter.` }];
+  }
+  if (signedRatio >= SIGNED_RATIO_SCATTER_HINT) {
+    return [{ tone: "neutral", text: `The difference is partly a uniform shift and partly scatter: signed and absolute means diverge (mean signed ${meanSigned.toFixed(4)} vs mean absolute ${meanAbs.toFixed(4)}).` }];
+  }
+  return [{ tone: "neutral", text: `The signed changes largely cancel out, so this looks like random scatter (rounding or precision) rather than a uniform offset: mean signed ${meanSigned.toFixed(4)} against mean absolute ${meanAbs.toFixed(4)}.` }];
 }
 
 function channelFindings(metrics) {
@@ -772,6 +923,7 @@ function buildNarrative(comparison, provDiff, includeBandContext) {
     .concat(provenanceFindings(provDiff))
     .concat(sanityFindings(comparison))
     .concat(distributionFindings(metrics, comparison))
+    .concat(signedDirectionFindings(metrics))
     .concat(channelFindings(metrics))
     .concat(threeWayFindings(comparison))
     .concat(gateFindings(comparison));
@@ -977,6 +1129,182 @@ const DETECT_PALETTE = [
 
 const CLOSENESS_NOTE = "All percentage fields measure closeness to the reference image, not visual quality improvement. similarity_pct = 100 * (1 - mean_abs/255); within_t_pct is the share of samples within the threshold; closer_to_reference_pct (three-way only) indicates how much closer the current image is to the reference than the baseline.";
 const NARRATIVE_NOTE = "The summary and findings are descriptive interpretations of the measured numbers. Wording heuristics choose phrasing only; the gate verdict is driven exclusively by limits supplied by the caller.";
+
+const VISIBILITY_MAX_INVISIBLE = 1.0;
+const VISIBILITY_MAX_HARD = 5.0;
+const VISIBILITY_MAX_CLOSE = 30.0;
+const LEVEL_DISTRIBUTION_ORDER = ["0", "1", "2", "3_4", "5_8", "gt_8"];
+const LEVEL_DISTRIBUTION_LABELS = {
+  "0": "0 unchanged",
+  "1": "1 level",
+  "2": "2 levels",
+  "3_4": "3-4 levels",
+  "5_8": "5-8 levels",
+  "gt_8": "more than 8",
+};
+
+function prefersReducedMotion() {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+function visibilityLine(metrics) {
+  if (metrics.bitwise_identical) return "";
+  const maxAbs = metrics.max_abs;
+  const changed = metrics.pct_pixels_changed;
+  if (maxAbs < VISIBILITY_MAX_INVISIBLE && changed < 5) return "Invisible to the eye";
+  if (maxAbs < VISIBILITY_MAX_HARD) return "Hard to see";
+  if (maxAbs < VISIBILITY_MAX_CLOSE) return "Visible on close inspection";
+  return "Clearly visible";
+}
+
+function plainSummaryHeadline(metrics) {
+  if (metrics.bitwise_identical) {
+    return {
+      title: "No variation. The images are identical, pixel for pixel.",
+      subline: "",
+    };
+  }
+  const visibility = visibilityLine(metrics);
+  return {
+    title: "Variation found.",
+    subline: visibility,
+  };
+}
+
+function directionPlainText(metrics) {
+  if (metrics.bitwise_identical) {
+    return "No shift in brightness or darkness.";
+  }
+  const findings = signedDirectionFindings(metrics);
+  return findings.length ? findings[0].text : "Direction could not be summarised.";
+}
+
+function directionFillWidth(metrics) {
+  if (metrics.bitwise_identical || metrics.mean_abs <= 0) return { left: 0, right: 0 };
+  const span = Math.min(50, (Math.abs(metrics.mean_signed) / 255) * 100 * 4);
+  if (metrics.signed_ratio < SIGNED_RATIO_SCATTER_HINT) return { left: 0, right: 0 };
+  if (metrics.mean_signed > 0) return { left: 0, right: span };
+  if (metrics.mean_signed < 0) return { left: span, right: 0 };
+  return { left: 0, right: 0 };
+}
+
+function renderPlainSummaryPanel(metrics, regions) {
+  const container = document.getElementById("plain-summary-content");
+  const headline = plainSummaryHeadline(metrics);
+  const changedPct = metrics.pct_pixels_changed || 0;
+  const meanPct = (metrics.mean_abs / 255) * 100;
+  const concentration = regions && regions.worst_blocks && regions.worst_blocks.length
+    ? regions.worst_blocks[0].contribution_pct
+    : 0;
+  const direction = directionFillWidth(metrics);
+  const directionText = directionPlainText(metrics);
+  const distribution = metrics.level_distribution || { "0": 100, "1": 0, "2": 0, "3_4": 0, "5_8": 0, "gt_8": 0 };
+
+  const stackedSegments = LEVEL_DISTRIBUTION_ORDER.map(bucket => {
+    const pct = distribution[bucket] || 0;
+    const label = pct >= 6 ? LEVEL_DISTRIBUTION_LABELS[bucket] : "";
+    return `<div class="stacked-segment" data-bucket="${bucket}" data-width="${pct.toFixed(4)}" title="${LEVEL_DISTRIBUTION_LABELS[bucket]}: ${pct.toFixed(1)}%">${escapeHtml(label)}</div>`;
+  }).join("");
+
+  const stackedLegend = LEVEL_DISTRIBUTION_ORDER.map(bucket =>
+    `<span><span style="background:${segmentColor(bucket)};width:.65rem;height:.65rem;display:inline-block;border-radius:2px;margin-right:.25rem;vertical-align:middle"></span>${escapeHtml(LEVEL_DISTRIBUTION_LABELS[bucket])}</span>`
+  ).join("");
+
+  container.innerHTML = `
+    <p class="plain-summary-headline">${escapeHtml(headline.title)}</p>
+    ${headline.subline ? `<p class="plain-summary-subline">${escapeHtml(headline.subline)}</p>` : ""}
+
+    <div class="bar-row">
+      <p class="bar-title">How much of the image changed</p>
+      <div class="bar-track">
+        <div class="bar-fill" data-width="${Math.min(100, changedPct).toFixed(4)}"></div>
+        <span class="bar-value">${changedPct.toFixed(1)}%</span>
+      </div>
+      <p class="bar-caption">${metrics.bitwise_identical
+        ? "Every pixel matches the reference exactly."
+        : `About ${changedPct.toFixed(1)}% of pixels differ from the reference in at least one colour channel.`}</p>
+    </div>
+
+    <div class="bar-row">
+      <p class="bar-title">How far pixels moved</p>
+      <div class="bar-track">
+        <div class="bar-fill" data-width="${Math.min(100, meanPct).toFixed(4)}"></div>
+        <span class="bar-value">${metrics.mean_abs.toFixed(2)} / 255</span>
+      </div>
+      <p class="bar-caption">${metrics.bitwise_identical
+        ? "No movement on the 0-255 scale."
+        : `On average a pixel moved ${metrics.mean_abs.toFixed(2)} levels out of 255.`}</p>
+    </div>
+
+    <div class="bar-row">
+      <p class="bar-title">How concentrated it is</p>
+      <div class="bar-track">
+        <div class="bar-fill" data-width="${Math.min(100, concentration).toFixed(4)}"></div>
+        <span class="bar-value">${concentration.toFixed(1)}%</span>
+      </div>
+      <p class="bar-caption">${metrics.bitwise_identical
+        ? "There is no difference to concentrate."
+        : `The single largest region accounts for ${concentration.toFixed(1)}% of the total difference.`}</p>
+    </div>
+
+    <div class="bar-row">
+      <p class="bar-title">How far pixels moved (distribution)</p>
+      <div class="stacked-bar">${stackedSegments}</div>
+      <div class="stacked-legend">${stackedLegend}</div>
+      <p class="bar-caption">${metrics.bitwise_identical
+        ? "All pixels stayed at zero difference."
+        : "A solid block at one level usually means micro-drift; a long tail means something structural changed."}</p>
+    </div>
+
+    <div class="direction-block">
+      <p class="bar-title">Direction of change</p>
+      <div class="direction-track">
+        <div class="direction-center"></div>
+        <div class="direction-fill direction-fill-left" data-width="${direction.left.toFixed(4)}"></div>
+        <div class="direction-fill direction-fill-right" data-width="${direction.right.toFixed(4)}"></div>
+      </div>
+      <div class="direction-labels"><span>Darker</span><span>Neutral</span><span>Brighter</span></div>
+      <p class="direction-text">${escapeHtml(directionText)}</p>
+    </div>
+  `;
+
+  animateSummaryBars(container, prefersReducedMotion());
+}
+
+function segmentColor(bucket) {
+  return ({
+    "0": "#30363d",
+    "1": "#388bfd",
+    "2": "#58a6ff",
+    "3_4": "#d29922",
+    "5_8": "#f0883e",
+    "gt_8": "#f85149",
+  })[bucket] || "#30363d";
+}
+
+function animateSummaryBars(container, reducedMotion) {
+  const apply = (elements, attr) => {
+    elements.forEach(el => {
+      const width = el.getAttribute(attr);
+      if (width === null) return;
+      if (reducedMotion) {
+        el.style.width = `${width}%`;
+      } else {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => { el.style.width = `${width}%`; });
+        });
+      }
+    });
+  };
+  apply(container.querySelectorAll(".bar-fill"), "data-width");
+  apply(container.querySelectorAll(".stacked-segment"), "data-width");
+  apply(container.querySelectorAll(".direction-fill"), "data-width");
+}
+
+function clearPlainSummary(message) {
+  document.getElementById("plain-summary-content").innerHTML =
+    `<p class="plain-summary-subline">${escapeHtml(message)}</p>`;
+}
 const ADVISORY_NOTE = "Prompt adherence is advisory only. These scores are uncalibrated and cannot detect build-to-build pixel drift; they never contribute to the gate verdict.";
 
 function toRgbSamples(imageData) {
@@ -1030,12 +1358,17 @@ function metricsTable(title, metrics) {
   return `<h3>${title}</h3><table><tbody>
     ${row("bitwise_identical", metrics.bitwise_identical)}
     ${row("mean_abs", fixed(metrics.mean_abs, 6))}
+    ${row("mean_signed", fixed(metrics.mean_signed, 6))}
     ${row("p99_9", fixed(metrics.p99_9, 4))}
     ${row("max_abs", fixed(metrics.max_abs, 4))}
     ${row("pct_over_t", fixed(metrics.pct_over_t, 6))}
     ${row("per_channel_mean R", fixed(pcm.R, 6))}
     ${row("per_channel_mean G", fixed(pcm.G, 6))}
     ${row("per_channel_mean B", fixed(pcm.B, 6))}
+    ${row("per_channel_mean_signed R", fixed(metrics.per_channel_mean_signed.R, 6))}
+    ${row("per_channel_mean_signed G", fixed(metrics.per_channel_mean_signed.G, 6))}
+    ${row("per_channel_mean_signed B", fixed(metrics.per_channel_mean_signed.B, 6))}
+    ${row("signed_ratio", fixed(metrics.signed_ratio, 6))}
     ${row("similarity_pct", fixed(metrics.similarity_pct, 6))}
     ${row("within_t_pct", fixed(metrics.within_t_pct, 6))}
     ${row("sample_count", metrics.sample_count)}
@@ -1196,6 +1529,7 @@ function recompute() {
     headlineEl.textContent = state.reference && state.current
       ? "Enter a threshold to compute metrics."
       : "Load a reference and a current image to begin.";
+    clearPlainSummary(headlineEl.textContent);
     ["findings", "next-steps", "regions", "visuals", "metrics-tables"].forEach(id => {
       document.getElementById(id).innerHTML = "";
     });
@@ -1208,6 +1542,7 @@ function recompute() {
     verdictEl.textContent = "Shape mismatch";
     verdictEl.className = "verdict fail";
     headlineEl.textContent = `Reference is ${state.reference.width}x${state.reference.height} but current is ${state.current.width}x${state.current.height}. Pixel comparison needs identical dimensions.`;
+    clearPlainSummary("Images must be the same size before a summary can be shown.");
     return;
   }
 
@@ -1272,6 +1607,10 @@ function recompute() {
   }
 
   const narrative = buildNarrative(comparison, provDiff, includeBands);
+  const primaryMetrics = comparison.mode === "pairwise"
+    ? comparison.metrics
+    : comparison.reference_vs_current;
+  renderPlainSummaryPanel(primaryMetrics, regions);
 
   verdictEl.textContent = comparison.gate.verdict;
   verdictEl.className = "verdict " + (comparison.gate.verdict === "PASS" ? "pass" : comparison.gate.verdict === "FAIL" ? "fail" : "report");

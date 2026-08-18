@@ -44,8 +44,10 @@ def compute_metrics(
         result.update(_bitwise_identical_metrics(sample_count, threshold))
         return result
 
-    abs_diff = np.abs(cur - ref)
+    signed_diff = cur - ref
+    abs_diff = np.abs(signed_diff)
     flat = abs_diff.reshape(-1)
+    flat_signed = signed_diff.reshape(-1)
 
     # Accumulate in float64. Summing millions of float32 samples in float32 loses
     # significant digits in exactly the 0.3-0.6 regime this tool measures, and it
@@ -55,11 +57,22 @@ def compute_metrics(
     max_abs = float(np.max(flat))
     pct_over_t = float(np.mean(flat > threshold, dtype=np.float64) * 100.0)
 
+    mean_signed = float(np.mean(flat_signed, dtype=np.float64))
+
     per_channel_mean = {
         "R": float(np.mean(abs_diff[..., 0], dtype=np.float64)),
         "G": float(np.mean(abs_diff[..., 1], dtype=np.float64)),
         "B": float(np.mean(abs_diff[..., 2], dtype=np.float64)),
     }
+    per_channel_mean_signed = {
+        "R": float(np.mean(signed_diff[..., 0], dtype=np.float64)),
+        "G": float(np.mean(signed_diff[..., 1], dtype=np.float64)),
+        "B": float(np.mean(signed_diff[..., 2], dtype=np.float64)),
+    }
+
+    signed_ratio = abs(mean_signed) / mean_abs if mean_abs > 0.0 else 0.0
+
+    pct_pixels_changed, level_distribution = _pixel_level_distribution(abs_diff)
 
     similarity_pct = 100.0 * (1.0 - mean_abs / 255.0)
     within_t_pct = 100.0 - pct_over_t
@@ -68,10 +81,15 @@ def compute_metrics(
         {
             "bitwise_identical": False,
             "mean_abs": mean_abs,
+            "mean_signed": mean_signed,
             "p99_9": p99_9,
             "max_abs": max_abs,
             "pct_over_t": pct_over_t,
+            "pct_pixels_changed": pct_pixels_changed,
+            "level_distribution": level_distribution,
             "per_channel_mean": per_channel_mean,
+            "per_channel_mean_signed": per_channel_mean_signed,
+            "signed_ratio": signed_ratio,
             "similarity_pct": similarity_pct,
             "within_t_pct": within_t_pct,
         }
@@ -152,15 +170,54 @@ def _bitwise_identical_metrics(sample_count: int, threshold: float) -> MetricDic
     return {
         "bitwise_identical": True,
         "mean_abs": 0.0,
+        "mean_signed": 0.0,
         "p99_9": 0.0,
         "max_abs": 0.0,
         "pct_over_t": 0.0,
+        "pct_pixels_changed": 0.0,
+        "level_distribution": _empty_level_distribution(),
         "per_channel_mean": {"R": 0.0, "G": 0.0, "B": 0.0},
+        "per_channel_mean_signed": {"R": 0.0, "G": 0.0, "B": 0.0},
+        "signed_ratio": 0.0,
         "similarity_pct": 100.0,
         "within_t_pct": 100.0,
         "sample_count": sample_count,
         "threshold": float(threshold),
     }
+
+
+def _empty_level_distribution() -> dict[str, float]:
+    return {"0": 100.0, "1": 0.0, "2": 0.0, "3_4": 0.0, "5_8": 0.0, "gt_8": 0.0}
+
+
+def _pixel_level_distribution(abs_diff: np.ndarray) -> tuple[float, dict[str, float]]:
+    """Per-pixel max-channel difference buckets for summary visuals."""
+    magnitude = np.max(abs_diff, axis=2)
+    flat = magnitude.reshape(-1)
+    pixel_count = flat.size
+    if pixel_count == 0:
+        return 0.0, _empty_level_distribution()
+
+    changed = float(np.mean(flat > 0, dtype=np.float64) * 100.0)
+    buckets = {"0": 0, "1": 0, "2": 0, "3_4": 0, "5_8": 0, "gt_8": 0}
+    for value in flat:
+        if value == 0:
+            buckets["0"] += 1
+        elif value <= 1:
+            buckets["1"] += 1
+        elif value <= 2:
+            buckets["2"] += 1
+        elif value <= 4:
+            buckets["3_4"] += 1
+        elif value <= 8:
+            buckets["5_8"] += 1
+        else:
+            buckets["gt_8"] += 1
+
+    distribution = {
+        key: float(count / pixel_count * 100.0) for key, count in buckets.items()
+    }
+    return changed, distribution
 
 
 def _as_rgb_float32(array: np.ndarray) -> np.ndarray:

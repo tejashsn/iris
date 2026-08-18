@@ -51,10 +51,15 @@ def browser_compute_metrics_loop(
         return {
             "bitwise_identical": True,
             "mean_abs": 0.0,
+            "mean_signed": 0.0,
             "p99_9": 0.0,
             "max_abs": 0.0,
             "pct_over_t": 0.0,
+            "pct_pixels_changed": 0.0,
+            "level_distribution": {"0": 100.0, "1": 0.0, "2": 0.0, "3_4": 0.0, "5_8": 0.0, "gt_8": 0.0},
             "per_channel_mean": {"R": 0.0, "G": 0.0, "B": 0.0},
+            "per_channel_mean_signed": {"R": 0.0, "G": 0.0, "B": 0.0},
+            "signed_ratio": 0.0,
             "similarity_pct": 100.0,
             "within_t_pct": 100.0,
             "sample_count": sample_count,
@@ -62,9 +67,12 @@ def browser_compute_metrics_loop(
         }
 
     # JavaScript numbers are float64, so every accumulator here is float64 too.
-    abs_diff = np.abs(cur - ref)
+    signed_diff = cur - ref
+    abs_diff = np.abs(signed_diff)
     flat = abs_diff.reshape(-1)
+    flat_signed = signed_diff.reshape(-1)
     mean_abs = float(np.sum(flat, dtype=np.float64) / flat.size)
+    mean_signed = float(np.sum(flat_signed, dtype=np.float64) / flat_signed.size)
     p99_9 = _browser_percentile(flat, 99.9)
     max_abs = float(np.max(flat))
     over = float(np.sum(flat > threshold, dtype=np.float64))
@@ -75,21 +83,60 @@ def browser_compute_metrics_loop(
         "G": float(np.sum(abs_diff[..., 1], dtype=np.float64) / abs_diff[..., 1].size),
         "B": float(np.sum(abs_diff[..., 2], dtype=np.float64) / abs_diff[..., 2].size),
     }
+    per_channel_mean_signed = {
+        "R": float(np.sum(signed_diff[..., 0], dtype=np.float64) / signed_diff[..., 0].size),
+        "G": float(np.sum(signed_diff[..., 1], dtype=np.float64) / signed_diff[..., 1].size),
+        "B": float(np.sum(signed_diff[..., 2], dtype=np.float64) / signed_diff[..., 2].size),
+    }
+    signed_ratio = abs(mean_signed) / mean_abs if mean_abs > 0.0 else 0.0
+    pct_pixels_changed, level_distribution = _browser_pixel_level_distribution(abs_diff)
     similarity_pct = 100.0 * (1.0 - mean_abs / 255.0)
     within_t_pct = 100.0 - pct_over_t
 
     return {
         "bitwise_identical": False,
         "mean_abs": mean_abs,
+        "mean_signed": mean_signed,
         "p99_9": p99_9,
         "max_abs": max_abs,
         "pct_over_t": pct_over_t,
+        "pct_pixels_changed": pct_pixels_changed,
+        "level_distribution": level_distribution,
         "per_channel_mean": per_channel_mean,
+        "per_channel_mean_signed": per_channel_mean_signed,
+        "signed_ratio": signed_ratio,
         "similarity_pct": similarity_pct,
         "within_t_pct": within_t_pct,
         "sample_count": sample_count,
         "threshold": float(threshold),
     }
+
+
+def _browser_pixel_level_distribution(abs_diff: np.ndarray) -> tuple[float, dict[str, float]]:
+    magnitude = np.max(abs_diff, axis=2)
+    flat = magnitude.reshape(-1)
+    pixel_count = flat.size
+    if pixel_count == 0:
+        return 0.0, {"0": 100.0, "1": 0.0, "2": 0.0, "3_4": 0.0, "5_8": 0.0, "gt_8": 0.0}
+
+    changed = float(np.sum(flat > 0, dtype=np.float64) / pixel_count * 100.0)
+    buckets = {"0": 0, "1": 0, "2": 0, "3_4": 0, "5_8": 0, "gt_8": 0}
+    for value in flat:
+        if value == 0:
+            buckets["0"] += 1
+        elif value <= 1:
+            buckets["1"] += 1
+        elif value <= 2:
+            buckets["2"] += 1
+        elif value <= 4:
+            buckets["3_4"] += 1
+        elif value <= 8:
+            buckets["5_8"] += 1
+        else:
+            buckets["gt_8"] += 1
+
+    distribution = {key: float(count / pixel_count * 100.0) for key, count in buckets.items()}
+    return changed, distribution
 
 
 def browser_sanity(image: np.ndarray) -> dict:

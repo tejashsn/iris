@@ -10,6 +10,12 @@ from typing import Any
 import numpy as np
 
 from iris.annotate import write_detection_overlay
+from iris.batch import (
+    DEFAULT_PAIR_KEY_PATTERN,
+    PairPaths,
+    render_batch_stdout_summary,
+    run_batch,
+)
 from iris.compare import GateLimits, compare_pairwise, compare_three_way
 from iris.detect import (
     DEFAULT_DETECT_THRESHOLD,
@@ -40,13 +46,39 @@ def build_parser() -> argparse.ArgumentParser:
             "Metrics report closeness to a reference, not visual quality."
         ),
     )
-    parser.add_argument("--reference", required=True, help="Reference image path")
-    parser.add_argument("--current", required=True, help="Current image path")
-    parser.add_argument(
+
+    inputs = parser.add_argument_group("inputs", "Single-image or batch directory mode")
+    inputs.add_argument("--reference", default=None, help="Reference image path")
+    inputs.add_argument("--current", default=None, help="Current image path")
+    inputs.add_argument(
         "--baseline",
         default=None,
         help="Optional baseline image path (enables three-way mode)",
     )
+    inputs.add_argument(
+        "--reference-dir",
+        default=None,
+        help="Directory of reference images for batch mode",
+    )
+    inputs.add_argument(
+        "--current-dir",
+        default=None,
+        help="Directory of current images for batch mode",
+    )
+    inputs.add_argument(
+        "--baseline-dir",
+        default=None,
+        help="Optional baseline image directory (enables three-way per pair in batch mode)",
+    )
+    inputs.add_argument(
+        "--pair-key-pattern",
+        default=DEFAULT_PAIR_KEY_PATTERN,
+        help=(
+            "Regex with a 'model' named group used to pair files across directories "
+            f"(default: {DEFAULT_PAIR_KEY_PATTERN!r}); falls back to exact stem match"
+        ),
+    )
+
     parser.add_argument("--reference-label", default="reference")
     parser.add_argument("--current-label", default="current")
     parser.add_argument("--baseline-label", default="baseline")
@@ -56,7 +88,11 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Sample-difference threshold for pct_over_t (required; not a pass/fail cut)",
     )
-    parser.add_argument("--out", required=True, help="Output JSON report path")
+    parser.add_argument(
+        "--out",
+        required=True,
+        help="Output JSON report path (single mode) or output directory (batch mode)",
+    )
     parser.add_argument(
         "--text-out",
         default=None,
@@ -175,21 +211,32 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = build_parser()
-    args = parser.parse_args(argv)
+def _validate_mode(args: argparse.Namespace) -> bool:
+    batch = args.reference_dir is not None or args.current_dir is not None
+    single = args.reference is not None or args.current is not None
 
-    # Prompts may contain non-ASCII text that legacy Windows consoles cannot encode.
-    try:
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    except (AttributeError, OSError):
-        pass
+    if batch and single:
+        raise SystemExit("Cannot mix single-file paths with --reference-dir/--current-dir.")
+    if batch:
+        if not args.reference_dir or not args.current_dir:
+            raise SystemExit("Batch mode requires both --reference-dir and --current-dir.")
+        if args.baseline and not args.baseline_dir:
+            raise SystemExit("Use --baseline-dir (not --baseline) in batch mode.")
+        if args.baseline:
+            raise SystemExit("Cannot use --baseline together with batch directory mode.")
+        return True
+    if not args.reference or not args.current:
+        raise SystemExit(
+            "Single-image mode requires --reference and --current, "
+            "or use --reference-dir and --current-dir for batch mode."
+        )
+    if args.baseline_dir:
+        raise SystemExit("Use --baseline (not --baseline-dir) in single-image mode.")
+    return False
 
-    reference = load_image(args.reference)
-    current = load_image(args.current)
-    baseline = load_image(args.baseline) if args.baseline else None
 
-    limits = GateLimits(
+def _gate_limits(args: argparse.Namespace) -> GateLimits:
+    return GateLimits(
         max_mean_abs=args.max_mean_abs,
         max_p99_9=args.max_p99_9,
         max_max_abs=args.max_max_abs,
@@ -197,12 +244,140 @@ def main(argv: list[str] | None = None) -> int:
         min_similarity_pct=args.min_similarity_pct,
     )
 
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, OSError):
+        pass
+
+    batch_mode = _validate_mode(args)
+    if batch_mode:
+        return _run_batch_mode(args)
+    return _run_single_mode(args)
+
+
+def _run_single_mode(args: argparse.Namespace) -> int:
+    report, exit_code = _execute_comparison(
+        args,
+        reference_path=Path(args.reference),
+        current_path=Path(args.current),
+        baseline_path=Path(args.baseline) if args.baseline else None,
+        json_path=Path(args.out),
+        write_text=True,
+    )
+
+    print(render_text_summary(report), end="")
+    print(f"Wrote JSON report: {Path(args.out)}")
+    text_path = args.text_out or str(Path(args.out).with_suffix(".txt"))
+    print(f"Wrote text report: {text_path}")
+
+    if args.gate_exit and exit_code:
+        return 1
+    return 0
+
+
+def _run_batch_mode(args: argparse.Namespace) -> int:
+    output_dir = Path(args.out)
+    baseline_dir = Path(args.baseline_dir) if args.baseline_dir else None
+    metadata = collect_metadata() if args.metadata else None
+
+    def run_pair(pair: PairPaths, report_path: Path) -> dict[str, Any]:
+        record: dict[str, Any] = {
+            "pair_key": pair.pair_key,
+            "model": pair.model,
+            "reference": str(pair.reference),
+            "current": str(pair.current),
+            "report_path": str(report_path),
+            "error": None,
+            "bitwise_identical": None,
+            "headline": None,
+            "metrics": None,
+            "gate_verdict": None,
+        }
+        if pair.baseline is not None:
+            record["baseline"] = str(pair.baseline)
+
+        if baseline_dir is not None and pair.baseline is None:
+            record["error"] = (
+                f"No baseline file matched pair key {pair.pair_key!r} in {baseline_dir}"
+            )
+            return record
+
+        try:
+            report, exit_code = _execute_comparison(
+                args,
+                reference_path=pair.reference,
+                current_path=pair.current,
+                baseline_path=pair.baseline,
+                json_path=report_path,
+                write_text=False,
+                metadata=metadata,
+            )
+        except Exception as exc:
+            record["error"] = f"{type(exc).__name__}: {exc}"
+            return record
+
+        metrics = _primary_metrics_from_report(report)
+        record.update(
+            {
+                "bitwise_identical": metrics.get("bitwise_identical"),
+                "headline": report["summary"]["headline"],
+                "metrics": metrics,
+                "gate_verdict": report["gate"]["verdict"],
+                "gate_exit": exit_code,
+            }
+        )
+        return record
+
+    summary, exit_code = run_batch(
+        reference_dir=Path(args.reference_dir),
+        current_dir=Path(args.current_dir),
+        baseline_dir=baseline_dir,
+        output_dir=output_dir,
+        pair_key_pattern=args.pair_key_pattern,
+        run_pair=run_pair,
+    )
+
+    print(render_batch_stdout_summary(summary), end="")
+    print(f"Wrote batch summary JSON: {output_dir / 'batch_summary.json'}")
+    print(f"Wrote batch summary CSV: {output_dir / 'batch_summary.csv'}")
+
+    if args.gate_exit and exit_code:
+        return 1
+    return 0
+
+
+def _primary_metrics_from_report(report: dict[str, Any]) -> dict[str, Any]:
+    if report["mode"] == "pairwise":
+        return report["metrics"]
+    return report["reference_vs_current"]
+
+
+def _execute_comparison(
+    args: argparse.Namespace,
+    *,
+    reference_path: Path,
+    current_path: Path,
+    baseline_path: Path | None,
+    json_path: Path,
+    write_text: bool,
+    metadata: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], int]:
+    reference = load_image(reference_path)
+    current = load_image(current_path)
+    baseline = load_image(baseline_path) if baseline_path is not None else None
+
+    limits = _gate_limits(args)
     input_paths = {
-        "reference": str(Path(args.reference)),
-        "current": str(Path(args.current)),
+        "reference": str(reference_path),
+        "current": str(current_path),
     }
     if baseline is not None:
-        input_paths["baseline"] = str(Path(args.baseline))
+        input_paths["baseline"] = str(baseline_path)
 
     if baseline is not None:
         comparison = compare_three_way(
@@ -227,7 +402,7 @@ def main(argv: list[str] | None = None) -> int:
             block_size=args.block_size,
         )
 
-    provenance, provenance_diff = _collect_provenance(args, baseline)
+    provenance, provenance_diff = _collect_provenance(args, reference_path, current_path, baseline_path)
     prompt, prompt_source = resolve_prompt(args.prompt, provenance or {})
 
     images = {"reference": reference, "current": current}
@@ -255,7 +430,9 @@ def main(argv: list[str] | None = None) -> int:
 
     heatmaps = _write_visuals(args, reference, current, baseline, comparison)
     _write_detection_overlays(args, images, prompt_elements)
-    metadata = collect_metadata() if args.metadata else None
+
+    if metadata is None and args.metadata:
+        metadata = collect_metadata()
 
     report = build_report(
         comparison,
@@ -269,32 +446,30 @@ def main(argv: list[str] | None = None) -> int:
         include_band_context=not args.no_band_context,
     )
 
-    json_path = write_json_report(report, args.out)
-    text_path = args.text_out or str(Path(args.out).with_suffix(".txt"))
-    write_text_report(report, text_path)
+    write_json_report(report, json_path)
+    if write_text:
+        text_path = args.text_out or str(json_path.with_suffix(".txt"))
+        write_text_report(report, text_path)
 
-    print(render_text_summary(report), end="")
-    print(f"Wrote JSON report: {json_path}")
-    print(f"Wrote text report: {text_path}")
-
-    if args.gate_exit and report["gate"]["verdict"] == "FAIL":
-        return 1
-    return 0
+    exit_code = 1 if report["gate"]["verdict"] == "FAIL" else 0
+    return report, exit_code
 
 
 def _collect_provenance(
     args: argparse.Namespace,
-    baseline: np.ndarray | None,
+    reference_path: Path,
+    current_path: Path,
+    baseline_path: Path | None,
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     if args.no_provenance:
         return None, None
 
     entries = {
-        "reference": extract_provenance(args.reference),
-        "current": extract_provenance(args.current),
+        "reference": extract_provenance(reference_path),
+        "current": extract_provenance(current_path),
     }
-    if baseline is not None:
-        entries["baseline"] = extract_provenance(args.baseline)
+    if baseline_path is not None:
+        entries["baseline"] = extract_provenance(baseline_path)
 
     return entries, diff_provenance(entries)
 
