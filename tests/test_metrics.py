@@ -24,6 +24,47 @@ def test_bitwise_identical_short_circuit():
     assert metrics["pct_over_t"] == 0.0
     assert metrics["similarity_pct"] == 100.0
     assert metrics["within_t_pct"] == 100.0
+    assert metrics["mean_signed"] == 0.0
+    assert metrics["signed_ratio"] == 0.0
+    assert metrics["pct_pixels_changed"] == 0.0
+    assert metrics["level_distribution"]["0"] == pytest.approx(100.0)
+    assert metrics["mean_signed"] == 0.0
+    assert metrics["signed_ratio"] == 0.0
+
+
+def test_uniform_shift_signed_ratio_near_one():
+    reference = solid_image(100.0)
+    current = reference + 2.0
+    metrics = compute_metrics(reference, current, threshold=1.0)
+
+    assert metrics["mean_signed"] == pytest.approx(2.0)
+    assert metrics["mean_abs"] == pytest.approx(2.0)
+    assert metrics["signed_ratio"] == pytest.approx(1.0)
+    pcm_signed = metrics["per_channel_mean_signed"]
+    assert pcm_signed["R"] == pytest.approx(2.0)
+    assert pcm_signed["G"] == pytest.approx(2.0)
+    assert pcm_signed["B"] == pytest.approx(2.0)
+
+
+def test_random_scatter_signed_ratio_near_zero():
+    rng = np.random.default_rng(42)
+    reference = rng.uniform(50.0, 150.0, size=(128, 128, 3)).astype(np.float32)
+    noise = rng.choice([-1.0, 1.0], size=reference.shape).astype(np.float32)
+    current = reference + noise
+    metrics = compute_metrics(reference, current, threshold=1.0)
+
+    assert metrics["mean_signed"] == pytest.approx(0.0, abs=0.05)
+    assert metrics["signed_ratio"] == pytest.approx(0.0, abs=0.05)
+
+
+def test_identical_images_signed_ratio_zero_no_divide_by_zero():
+    image = solid_image(42.0)
+    metrics = compute_metrics(image, image.copy(), threshold=1.0)
+
+    assert metrics["bitwise_identical"] is True
+    assert metrics["mean_signed"] == 0.0
+    assert metrics["signed_ratio"] == 0.0
+    assert metrics["per_channel_mean_signed"] == {"R": 0.0, "G": 0.0, "B": 0.0}
 
 
 def test_localized_patch_tail_vs_mean():

@@ -11,10 +11,13 @@ from pathlib import Path
 import pytest
 
 from iris.narrative import (
+    CHANGED_FRACTION_UNIFORM_WORD_HINT,
     CHANNEL_SKEW_RATIO_HINT,
     CONCENTRATION_RATIO_HINT,
     OBSERVED_DIFFERENT_SEED_MEAN_ABS,
     OBSERVED_HEALTHY_MEAN_ABS,
+    SIGNED_RATIO_SCATTER_HINT,
+    SIGNED_RATIO_UNIFORM_HINT,
 )
 from iris.regions import BROAD_SPREAD_BLOCK_FRACTION, CONCENTRATION_TARGET_PCT
 from iris.report import SCHEMA_VERSION
@@ -50,6 +53,9 @@ def test_observed_bands_match(html):
 def test_wording_heuristics_match(html):
     assert f"CONCENTRATION_RATIO_HINT = {CONCENTRATION_RATIO_HINT}" in html
     assert f"CHANNEL_SKEW_RATIO_HINT = {CHANNEL_SKEW_RATIO_HINT}" in html
+    assert f"SIGNED_RATIO_UNIFORM_HINT = {SIGNED_RATIO_UNIFORM_HINT}" in html
+    assert f"SIGNED_RATIO_SCATTER_HINT = {SIGNED_RATIO_SCATTER_HINT}" in html
+    assert f"CHANGED_FRACTION_UNIFORM_WORD_HINT = {CHANGED_FRACTION_UNIFORM_WORD_HINT}" in html
     assert f"CONCENTRATION_TARGET_PCT = {CONCENTRATION_TARGET_PCT}" in html
     assert f"BROAD_SPREAD_BLOCK_FRACTION = {BROAD_SPREAD_BLOCK_FRACTION}" in html
 
@@ -105,3 +111,15 @@ def test_prompt_elements_panel_present_and_advisory(html):
 
 def test_closeness_note_present(html):
     assert "closeness to the reference image, not visual quality improvement" in html
+
+
+def test_summary_visibility_constants_match(html):
+    assert "const VISIBILITY_MAX_INVISIBLE = 1.0;" in html
+    assert "const VISIBILITY_MAX_HARD = 5.0;" in html
+    assert "const VISIBILITY_MAX_CLOSE = 30.0;" in html
+
+
+def test_summary_distribution_labels_present(html):
+    assert '"0": "0 unchanged"' in html
+    assert '"gt_8": "more than 8"' in html
+    assert "renderPlainSummaryPanel" in html

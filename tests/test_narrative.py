@@ -193,3 +193,39 @@ def test_render_narrative_has_readable_sections():
     assert "WHAT THIS MEANS" in rendered
     assert "WHAT TO DO NEXT" in rendered
     assert max(len(line) for line in rendered.splitlines()) <= 74
+
+
+def test_uniform_shift_described_as_directed():
+    reference = np.full((64, 64, 3), 100.0, dtype=np.float32)
+    current = reference + 2.0
+    comparison = compare_pairwise(reference, current, threshold=1.0)
+    narrative = build_narrative(comparison)
+    text = " ".join(narrative["findings"])
+
+    assert "uniformly brighter" in text
+    assert "scaling or conversion" in text
+
+
+def test_random_scatter_described_as_cancelling():
+    rng = np.random.default_rng(7)
+    reference = rng.uniform(50.0, 150.0, size=(64, 64, 3)).astype(np.float32)
+    noise = rng.choice([-1.0, 1.0], size=reference.shape).astype(np.float32)
+    current = reference + noise
+    comparison = compare_pairwise(reference, current, threshold=1.0)
+    narrative = build_narrative(comparison)
+    text = " ".join(narrative["findings"])
+
+    assert "cancel out" in text
+    assert "random scatter" in text
+
+
+def test_localized_same_direction_avoids_uniform_wording():
+    reference = np.full((256, 256, 3), 128.0, dtype=np.float32)
+    current = reference.copy()
+    current[:32, :32, :] = 0.0
+    comparison = compare_pairwise(reference, current, threshold=1.0)
+    narrative = build_narrative(comparison)
+    text = " ".join(narrative["findings"])
+
+    assert "Every pixel that changed moved the same way" in text
+    assert "uniformly" not in text.lower()

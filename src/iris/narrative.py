@@ -20,6 +20,9 @@ OBSERVED_DIFFERENT_SEED_MEAN_ABS = (57.0, 84.0)
 # Wording heuristics for the prose summary only.
 CONCENTRATION_RATIO_HINT = 20.0
 CHANNEL_SKEW_RATIO_HINT = 2.0
+SIGNED_RATIO_UNIFORM_HINT = 0.8
+SIGNED_RATIO_SCATTER_HINT = 0.3
+CHANGED_FRACTION_UNIFORM_WORD_HINT = 50.0
 
 
 def build_narrative(
@@ -39,6 +42,7 @@ def build_narrative(
     findings.extend(_provenance_findings(provenance_diff))
     findings.extend(_sanity_findings(comparison))
     findings.extend(_distribution_findings(metrics, comparison))
+    findings.extend(_signed_direction_findings(metrics))
     findings.extend(_channel_findings(metrics))
     findings.extend(_three_way_findings(comparison))
     findings.extend(_gate_findings(comparison))
@@ -165,6 +169,44 @@ def _distribution_findings(
         findings.append(describe_concentration(regions))
 
     return findings
+
+
+def _signed_direction_findings(metrics: dict[str, Any]) -> list[str]:
+    if metrics.get("bitwise_identical") or metrics.get("mean_abs", 0.0) <= 0.0:
+        return []
+
+    signed_ratio = metrics["signed_ratio"]
+    mean_signed = metrics["mean_signed"]
+    mean_abs = metrics["mean_abs"]
+    changed_fraction = metrics["pct_over_t"]
+
+    if signed_ratio > SIGNED_RATIO_UNIFORM_HINT:
+        direction = "brighter" if mean_signed > 0 else "darker"
+        magnitude = abs(mean_signed)
+        if changed_fraction >= CHANGED_FRACTION_UNIFORM_WORD_HINT:
+            return [
+                f"The changes all go one way: the frame is uniformly {direction} "
+                f"by about {magnitude:.4f} on average on the 0-255 scale, which "
+                "points at a scaling or conversion step rather than random scatter."
+            ]
+        return [
+            f"Every pixel that changed moved the same way, averaging {magnitude:.4f} "
+            f"{direction} where it differs, which points at a directed shift in the "
+            "affected region rather than random scatter."
+        ]
+
+    if signed_ratio >= SIGNED_RATIO_SCATTER_HINT:
+        return [
+            "The difference is partly a uniform shift and partly scatter: signed and "
+            f"absolute means diverge (mean signed {mean_signed:.4f} vs mean absolute "
+            f"{mean_abs:.4f})."
+        ]
+
+    return [
+        "The signed changes largely cancel out, so this looks like random scatter "
+        "(rounding or precision) rather than a uniform offset: mean signed "
+        f"{mean_signed:.4f} against mean absolute {mean_abs:.4f}."
+    ]
 
 
 def _channel_findings(metrics: dict[str, Any]) -> list[str]:

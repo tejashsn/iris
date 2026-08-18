@@ -13,7 +13,7 @@ from typing import Any
 
 from iris.narrative import build_narrative, render_narrative
 
-SCHEMA_VERSION = "2.0.0"
+SCHEMA_VERSION = "2.1.0"
 
 CLOSENESS_NOTE = (
     "All percentage fields measure closeness to the reference image, not visual "
@@ -290,10 +290,15 @@ def _format_metrics_block(title: str, metrics: dict[str, Any]) -> list[str]:
         f"{title}:",
         f"  bitwise_identical: {metrics['bitwise_identical']}",
         f"  mean_abs: {metrics['mean_abs']}",
+        f"  mean_signed: {metrics['mean_signed']}",
         f"  p99_9: {metrics['p99_9']}",
         f"  max_abs: {metrics['max_abs']}",
         f"  pct_over_t: {metrics['pct_over_t']}",
         f"  per_channel_mean: R={pcm['R']}, G={pcm['G']}, B={pcm['B']}",
+        f"  per_channel_mean_signed: R={metrics['per_channel_mean_signed']['R']}, "
+        f"G={metrics['per_channel_mean_signed']['G']}, "
+        f"B={metrics['per_channel_mean_signed']['B']}",
+        f"  signed_ratio: {metrics['signed_ratio']}",
         f"  similarity_pct: {metrics['similarity_pct']}",
         f"  within_t_pct: {metrics['within_t_pct']}",
         f"  sample_count: {metrics['sample_count']}",

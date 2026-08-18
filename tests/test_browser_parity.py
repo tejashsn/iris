@@ -28,9 +28,12 @@ TOLERANCE = 1e-9
 
 _METRIC_FIELDS = (
     "mean_abs",
+    "mean_signed",
     "p99_9",
     "max_abs",
     "pct_over_t",
+    "pct_pixels_changed",
+    "signed_ratio",
     "similarity_pct",
     "within_t_pct",
 )
@@ -54,6 +57,13 @@ def test_metrics_parity(seed):
     for channel in ("R", "G", "B"):
         assert library["per_channel_mean"][channel] == pytest.approx(
             browser["per_channel_mean"][channel], abs=TOLERANCE
+        )
+        assert library["per_channel_mean_signed"][channel] == pytest.approx(
+            browser["per_channel_mean_signed"][channel], abs=TOLERANCE
+        )
+    for bucket in ("0", "1", "2", "3_4", "5_8", "gt_8"):
+        assert library["level_distribution"][bucket] == pytest.approx(
+            browser["level_distribution"][bucket], abs=TOLERANCE
         )
     assert library["sample_count"] == browser["sample_count"]
 
