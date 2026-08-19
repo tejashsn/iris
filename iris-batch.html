@@ -80,6 +80,16 @@ td.num, th.num { text-align: right; font-family: var(--mono); white-space: nowra
 }
 .thumb-label { font-size: .62rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
 .mismatch-note { display: block; margin-top: .25rem; font-size: .72rem; color: var(--fail); font-family: var(--mono); }
+.workflow-meta { font-size: .74rem; margin-top: .2rem; line-height: 1.35; }
+.workflow-meta .meta-label { color: var(--muted); text-transform: uppercase; letter-spacing: .05em; font-size: .62rem; }
+.workflow-meta .meta-value { font-family: var(--mono); color: var(--text); }
+.workflow-prompt {
+  margin-top: .35rem; font-size: .74rem; color: #c9d1d9; max-width: 34ch;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+.glossary-table td:nth-child(1) { font-family: var(--mono); white-space: nowrap; }
+.glossary-table td:nth-child(2) { font-size: .78rem; color: #c9d1d9; }
+.glossary-table td:nth-child(3) { font-size: .78rem; }
 .note { color: var(--muted); font-size: .82rem; }
 .hidden { display: none !important; }
 .table-wrap { overflow: auto; max-height: 520px; border: 1px solid var(--border); border-radius: 6px; }
@@ -91,7 +101,6 @@ details.row-detail pre {
 .toolbar { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-bottom: .75rem; }
 .toolbar label { margin: 0; display: inline-flex; align-items: center; gap: .35rem; }
 .unmatched-list { margin: .3rem 0 0; padding-left: 1.1rem; font-family: var(--mono); font-size: .78rem; }
-.glossary-table td:first-child { font-family: var(--mono); white-space: nowrap; }
 .progress { color: var(--muted); font-size: .85rem; padding: .5rem 0; }
 .folder-btn { display: inline-block; background: var(--panel-2); border: 1px dashed var(--border); border-radius: 6px; padding: .6rem .9rem; cursor: pointer; font-size: .85rem; margin-bottom: .5rem; }
 .folder-btn.loaded { border-style: solid; color: var(--text); }
@@ -134,7 +143,7 @@ details.row-detail pre {
 
   <section class="panel hidden" id="thumb-panel">
     <h2>Image previews</h2>
-    <p class="note">Select both build folders to show reference and current thumbnails in the table below. Works with JSON reports and the demo — pick your two ComfyUI output folders, then click attach.</p>
+    <p class="note">Select both build folders to show reference/current thumbnails and read the ComfyUI prompt + seed from PNG metadata.</p>
     <label class="folder-btn" id="thumb-ref-btn"><span id="thumb-ref-label">Reference build folder</span><input type="file" id="thumb-ref-folder" webkitdirectory multiple class="hidden"></label>
     <label class="folder-btn" id="thumb-cur-btn"><span id="thumb-cur-label">Current build folder</span><input type="file" id="thumb-cur-folder" webkitdirectory multiple class="hidden"></label>
     <button type="button" class="secondary" id="btn-attach-thumbs" disabled>Attach image previews</button>
@@ -169,7 +178,7 @@ details.row-detail pre {
       <table id="results-table">
         <thead>
           <tr>
-            <th>Workflow / image</th>
+            <th>Workflow / seed / prompt</th>
             <th>Reference</th>
             <th>Current</th>
             <th>Verdict</th>
@@ -200,13 +209,120 @@ details.row-detail pre {
     <h2>What each metric means</h2>
     <div class="table-wrap" style="max-height:none">
       <table class="glossary-table">
-        <thead><tr><th>Metric</th><th>Plain English</th><th>How to read it</th></tr></thead>
+        <thead><tr><th>Metric</th><th>Technical purpose</th><th>Easy explanation</th><th>How to read it</th></tr></thead>
         <tbody id="glossary-body"></tbody>
       </table>
     </div>
   </section>
 
 </main>
+<script>
+"use strict";
+
+/* Provenance — mirrors iris-triage.html / src/iris/provenance.py */
+const SEED_KEYS = ["seed", "noise_seed"];
+const SAMPLER_KEYS = ["sampler_name", "scheduler", "steps", "cfg", "denoise"];
+const MODEL_KEYS = ["ckpt_name", "unet_name", "vae_name", "lora_name", "clip_name", "model_name"];
+const MAX_LINK_DEPTH = 16;
+
+function readPngTextChunks(buffer) {
+  const bytes = new Uint8Array(buffer);
+  const signature = [137, 80, 78, 71, 13, 10, 26, 10];
+  for (let i = 0; i < signature.length; i++) if (bytes[i] !== signature[i]) return {};
+  const chunks = {};
+  const view = new DataView(buffer);
+  let offset = 8;
+  while (offset + 8 <= bytes.length) {
+    const length = view.getUint32(offset);
+    const type = String.fromCharCode(bytes[offset + 4], bytes[offset + 5], bytes[offset + 6], bytes[offset + 7]);
+    const dataStart = offset + 8;
+    if (dataStart + length > bytes.length) break;
+    if (type === "tEXt" || type === "iTXt") {
+      const data = bytes.subarray(dataStart, dataStart + length);
+      const parsed = type === "tEXt" ? parseTextChunk(data) : parseItxtChunk(data);
+      if (parsed) chunks[parsed.keyword] = parsed.text;
+    }
+    if (type === "IEND") break;
+    offset = dataStart + length + 4;
+  }
+  return chunks;
+}
+function latin1(bytes) { let out = ""; for (let i = 0; i < bytes.length; i++) out += String.fromCharCode(bytes[i]); return out; }
+function utf8Decode(bytes) { try { return new TextDecoder("utf-8").decode(bytes); } catch (e) { return latin1(bytes); } }
+function parseTextChunk(data) {
+  const nul = data.indexOf(0); if (nul < 0) return null;
+  return { keyword: latin1(data.subarray(0, nul)), text: utf8Decode(data.subarray(nul + 1)) };
+}
+function parseItxtChunk(data) {
+  const nul = data.indexOf(0); if (nul < 0) return null;
+  const keyword = latin1(data.subarray(0, nul));
+  if (data[nul + 1] !== 0) return null;
+  let cursor = nul + 3, seen = 0;
+  while (cursor < data.length && seen < 2) { if (data[cursor] === 0) seen++; cursor++; }
+  return { keyword, text: utf8Decode(data.subarray(cursor)) };
+}
+function isLink(value) {
+  return Array.isArray(value) && value.length === 2 && (typeof value[0] === "string" || typeof value[0] === "number");
+}
+function resolveText(graph, link, depth) {
+  depth = depth || 0;
+  if (depth > MAX_LINK_DEPTH || !isLink(link)) return null;
+  const node = graph[String(link[0])]; if (!node || typeof node !== "object") return null;
+  const inputs = node.inputs; if (!inputs || typeof inputs !== "object") return null;
+  if (typeof inputs.text === "string") return inputs.text.trim() || null;
+  if (isLink(inputs.text)) return resolveText(graph, inputs.text, depth + 1);
+  for (const key of ["conditioning", "conditioning_1", "conditioning_to"]) {
+    if (isLink(inputs[key])) { const resolved = resolveText(graph, inputs[key], depth + 1); if (resolved) return resolved; }
+  }
+  return null;
+}
+function joinUnique(texts) {
+  const seen = [];
+  for (const text of texts) { const cleaned = (text || "").trim(); if (cleaned && seen.indexOf(cleaned) === -1) seen.push(cleaned); }
+  return seen.length ? seen.join(" | ") : null;
+}
+function parseComfyGraph(graph) {
+  const seeds = [], samplers = [], models = [], positive = [], negative = [];
+  for (const nodeId of Object.keys(graph).sort()) {
+    const node = graph[nodeId]; if (!node || typeof node !== "object") continue;
+    const inputs = node.inputs; if (!inputs || typeof inputs !== "object") continue;
+    for (const key of SEED_KEYS) if (typeof inputs[key] === "number") seeds.push({ key, value: inputs[key] });
+    const samplerEntry = {}; let hasSampler = false;
+    for (const key of SAMPLER_KEYS) if (key in inputs && !isLink(inputs[key])) { samplerEntry[key] = inputs[key]; hasSampler = true; }
+    if (hasSampler) { samplerEntry.class_type = node.class_type; samplers.push(samplerEntry); }
+    for (const key of MODEL_KEYS) if (typeof inputs[key] === "string") models.push(inputs[key]);
+    if (isLink(inputs.positive)) { const text = resolveText(graph, inputs.positive); if (text) positive.push(text); }
+    if (isLink(inputs.negative)) { const text = resolveText(graph, inputs.negative); if (text) negative.push(text); }
+  }
+  let positiveTexts = positive;
+  if (!positiveTexts.length) {
+    for (const nodeId of Object.keys(graph).sort()) {
+      const node = graph[nodeId];
+      if (node && String(node.class_type || "").indexOf("CLIPTextEncode") !== -1) {
+        const value = (node.inputs || {}).text;
+        if (typeof value === "string" && value.trim()) positiveTexts.push(value.trim());
+      }
+    }
+  }
+  return {
+    positive_prompt: joinUnique(positiveTexts),
+    negative_prompt: joinUnique(negative),
+    seeds, samplers,
+    models: Array.from(new Set(models)).sort(),
+  };
+}
+function extractProvenance(buffer, filename) {
+  const result = { source: filename, available: false, positive_prompt: null, negative_prompt: null, seeds: [], samplers: [], models: [], notes: [] };
+  let chunks;
+  try { chunks = readPngTextChunks(buffer); } catch (e) { result.notes.push("Could not read PNG text chunks: " + e.message); return result; }
+  if (!chunks.prompt) { result.notes.push("No ComfyUI prompt metadata in PNG."); return result; }
+  let graph;
+  try { graph = JSON.parse(chunks.prompt); } catch (e) { result.notes.push("Invalid prompt JSON in PNG."); return result; }
+  if (!graph || typeof graph !== "object") { result.notes.push("Prompt chunk was not a node graph."); return result; }
+  result.available = true;
+  return Object.assign(result, parseComfyGraph(graph));
+}
+</script>
 <script>
 "use strict";
 
@@ -221,25 +337,27 @@ let thumbCurFiles = [];
 let activeObjectUrls = [];
 
 const GLOSSARY = [
-  ["Verdict: PASS", "100% pixel match — every RGB sample is identical between reference and current.", "Bitwise identical. No drift."],
-  ["Verdict: FAIL", "Not a 100% pixel match — at least one RGB sample differs.", "See similarity % and % not matching note."],
-  ["Status: SAME", "Every RGB pixel matches exactly between reference and current.", "Strongest possible match. No drift at all."],
-  ["Status: DIFFER", "At least one pixel differs between the two images.", "Open details for how large and how widespread the difference is."],
-  ["bitwise_identical", "True when every R, G, and B sample is exactly equal.", "Same as Status SAME."],
-  ["similarity_pct", "100 × (1 − mean_abs / 255). Higher = closer to reference.", "100% = identical. Healthy cross-GPU drift is often still ~99.5%+ similarity."],
-  ["mean_abs", "Average absolute RGB difference on a 0–255 scale.", "Healthy same-seed drift: ~0.3–0.6. Different seed: ~57–84. Zero = identical."],
-  ["mean_signed", "Average signed difference (current − reference).", "Positive = current tends brighter; negative = darker. Near zero with low mean_abs = balanced noise."],
-  ["signed_ratio", "|mean_signed| / mean_abs. How directional vs scattered the drift is.", "Near 1 = uniform shift (e.g. all pixels slightly brighter). Near 0 = scattered +/- noise."],
-  ["max_abs", "Largest single-channel absolute difference in the frame.", "Spikes from outliers; pair with p99_9 for tail behaviour."],
-  ["p99_9", "99.9th percentile of absolute per-sample differences.", "Typical worst-case sample level excluding extreme outliers."],
-  ["pct_pixels_changed", "Percent of pixels where any channel differs.", "0% = identical. Different seeds often change 99%+ of pixels."],
-  ["pct_over_t", "Percent of RGB samples whose absolute difference exceeds your threshold.", "Uses the threshold you set (default 1.0). Not a pass/fail gate by itself."],
-  ["within_t_pct", "100 − pct_over_t. Samples within threshold.", "Complement of pct_over_t."],
-  ["level_distribution", "How changed pixels bucket by magnitude (0, 1, 2, 3–4, 5–8, >8).", "Shows whether drift is tiny rounding vs large compositional change."],
-  ["per_channel_mean", "Mean absolute difference per R, G, B channel.", "Reveals colour-channel skew."],
-  ["per_channel_mean_signed", "Mean signed difference per channel.", "Which channel tends brighter or darker."],
-  ["threshold", "Your chosen cutoff for pct_over_t (required, no default in CLI).", "IRIS does not pick this for you; it only reports against it."],
-  ["gate_verdict", "PASS / FAIL / REPORT_ONLY when you configure numeric gate limits.", "Batch UI shows REPORT_ONLY unless you set gates in the CLI."],
+  ["Verdict: PASS", "Binary gate: bitwise_identical == true (all RGB samples equal).", "The two build outputs are an exact pixel-for-pixel match.", "No drift at all. Safe to treat as identical images."],
+  ["Verdict: FAIL", "Binary gate: at least one RGB sample differs between reference and current.", "The builds did not produce the same pixels.", "Check similarity % and the % not matching note on that row."],
+  ["Status: SAME", "Alias for bitwise_identical in the comparison engine.", "Every pixel matches exactly.", "Strongest possible match."],
+  ["Status: DIFFER", "At least one pixel value changed between the two images.", "The images are not identical.", "Open row details for how large and how widespread the change is."],
+  ["bitwise_identical", "Short-circuit equality check on the full RGB sample arrays before any statistics.", "True only when every red, green, and blue value is exactly equal.", "Same as Status SAME / Verdict PASS."],
+  ["similarity_pct", "Derived metric: 100 × (1 − mean_abs / 255). Measures closeness to reference, not quality.", "How close the current image is to the reference on a 0–100% scale.", "100% = identical. Values below 100% mean some drift exists."],
+  ["mean_abs", "First moment of |current − reference| over all RGB samples on a 0–255 scale.", "Average size of pixel differences across the whole image.", "0 = identical. ~0.3–0.6 = healthy same-seed GPU noise. ~57–84 = different seed."],
+  ["mean_signed", "First moment of (current − reference) over all RGB samples.", "Whether the current image is overall brighter (+) or darker (−) than reference.", "Near 0 with low mean_abs = balanced noise, not a uniform brightness shift."],
+  ["signed_ratio", "Directionality index: |mean_signed| / mean_abs.", "Tells you if drift pushes one way (uniform) or cancels out (scattered).", "Near 1 = uniform shift. Near 0 = random +/- noise."],
+  ["max_abs", "Supremum of |current − reference| over all RGB samples.", "The single worst pixel difference in the entire frame.", "Use with p99_9 — one hot pixel can spike max without moving the mean much."],
+  ["p99_9", "99.9th percentile of per-sample absolute differences.", "Typical worst-case difference, ignoring the rarest outliers.", "Watch this for localised faults — it moves before the mean does."],
+  ["pct_pixels_changed", "Fraction of pixels where max channel delta > 0, as a percentage.", "How much of the image changed at all, even by 1 level.", "0% = identical. Different seeds often change 99%+ of pixels."],
+  ["pct_over_t", "Fraction of RGB samples with |delta| > threshold, as a percentage.", "How many samples exceed your chosen noise cutoff.", "Uses your threshold (default 1.0). Not a pass/fail gate by itself."],
+  ["within_t_pct", "Complement of pct_over_t: 100 − pct_over_t.", "Share of samples that stay within your threshold.", "Higher is closer; 100% means nothing exceeds the threshold."],
+  ["level_distribution", "Histogram of per-pixel max-delta magnitudes into buckets (0, 1, 2, 3–4, 5–8, >8).", "Shows whether differences are tiny rounding or large compositional change.", "Most mass in bucket 0 = identical. Mass in >8 = serious visual change."],
+  ["per_channel_mean", "Mean absolute difference computed separately for R, G, and B.", "Whether one colour channel drifts more than others.", "Skew across channels can hint at colour-space or encoder issues."],
+  ["per_channel_mean_signed", "Mean signed difference per R, G, B channel.", "Which channel tends brighter or darker.", "Compare channels to spot colour bias in the drift."],
+  ["threshold", "User-supplied cutoff for pct_over_t only; IRIS never assigns a default.", "The noise level you chose to report against.", "IRIS reports against it but does not pass/fail on it unless you set CLI gates."],
+  ["gate_verdict", "PASS/FAIL/REPORT_ONLY from caller-supplied numeric limits in the CLI.", "Formal gate result when you configure limits like max-mean-abs.", "Batch UI shows REPORT_ONLY unless you set gates in the CLI."],
+  ["Seed", "Random number pinned in the ComfyUI workflow; same seed + same settings should reproduce the same image.", "The reproducibility key for this workflow run.", "Same seed across both builds is required for a fair comparison."],
+  ["Prompt", "Positive text conditioning extracted from ComfyUI PNG metadata.", "The text the model was asked to generate.", "If prompts differ, pixel drift may come from the request, not the build."],
 ];
 
 function escapeHtml(s) {
@@ -266,9 +384,62 @@ function fixed(v, n) {
   return typeof v === "number" && Number.isFinite(v) ? v.toFixed(n) : "—";
 }
 
+function truncate(text, maxLen) {
+  const s = String(text || "");
+  return s.length <= maxLen ? s : s.slice(0, maxLen - 1) + "…";
+}
+
+function seedFromFilename(name) {
+  const m = String(name || "").match(/__seed_([^./\\]+)/);
+  return m ? m[1] : null;
+}
+
+function seedFromPairKey(key) {
+  return seedFromFilename(key);
+}
+
+function formatSeedDisplay(prov, filename, pairKey) {
+  if (prov && prov.seeds && prov.seeds.length) {
+    return prov.seeds.map(s => String(s.value)).join(", ");
+  }
+  return seedFromFilename(filename) || seedFromPairKey(pairKey) || "—";
+}
+
+function workflowCellHtml(pair) {
+  const name = pair.model || modelFromPairKey(pair.pair_key || basename(pair.reference));
+  const file = basename(pair.pair_key || pair.reference || "");
+  const seed = pair.seed_display || formatSeedDisplay(pair.provenance, basename(pair.reference), pair.pair_key);
+  const prompt = pair.prompt_display || (pair.provenance && pair.provenance.positive_prompt) || null;
+  const promptBlock = prompt
+    ? `<div class="workflow-prompt" title="${escapeHtml(prompt)}"><span class="meta-label">Prompt </span>${escapeHtml(truncate(prompt, 140))}</div>`
+    : `<div class="workflow-meta note">Prompt: attach build folders to read from PNG metadata</div>`;
+  return `<strong>${escapeHtml(name)}</strong>
+    <div class="workflow-meta note">${escapeHtml(file)}</div>
+    <div class="workflow-meta"><span class="meta-label">Seed </span><span class="meta-value">${escapeHtml(seed)}</span></div>
+    ${promptBlock}`;
+}
+
+async function enrichPairFromReferenceFile(pair, refFile) {
+  if (!refFile) return;
+  const buffer = await refFile.arrayBuffer();
+  const prov = extractProvenance(buffer, refFile.name);
+  pair.provenance = prov;
+  pair.seed_display = formatSeedDisplay(prov, refFile.name, pair.pair_key);
+  pair.prompt_display = prov.positive_prompt || null;
+}
+
+function enrichSummarySeedsFromNames(summary) {
+  for (const pair of summary.pairs || []) {
+    if (!pair.seed_display) {
+      pair.seed_display = formatSeedDisplay(pair.provenance, basename(pair.reference), pair.pair_key);
+    }
+  }
+}
+
 function renderGlossary() {
   document.getElementById("glossary-body").innerHTML = GLOSSARY.map(
-    ([name, plain, read]) => `<tr><td>${escapeHtml(name)}</td><td>${escapeHtml(plain)}</td><td>${escapeHtml(read)}</td></tr>`
+    ([name, technical, easy, read]) =>
+      `<tr><td>${escapeHtml(name)}</td><td>${escapeHtml(technical)}</td><td>${escapeHtml(easy)}</td><td>${escapeHtml(read)}</td></tr>`
   ).join("");
 }
 
@@ -340,7 +511,7 @@ function attachThumbnailsFromFolders(summary, refList, curList) {
   revokeObjectUrls();
   const refByName = filesByName(refList);
   const curByName = filesByName(curList);
-  for (const pair of summary.pairs || []) {
+  const tasks = (summary.pairs || []).map(async pair => {
     const refName = basename(pair.reference);
     const curName = basename(pair.current);
     const refFile = refByName.get(refName);
@@ -349,7 +520,9 @@ function attachThumbnailsFromFolders(summary, refList, curList) {
     pair.cur_image_url = curFile ? URL.createObjectURL(curFile) : null;
     if (pair.ref_image_url) activeObjectUrls.push(pair.ref_image_url);
     if (pair.cur_image_url) activeObjectUrls.push(pair.cur_image_url);
-  }
+    if (refFile) await enrichPairFromReferenceFile(pair, refFile);
+  });
+  return Promise.all(tasks);
 }
 
 function sameSamples(a, b) {
@@ -520,7 +693,7 @@ function renderTable(summary) {
       ? `<span class="mismatch-note">${escapeHtml(vd.note)}</span>`
       : "";
     return `<tr>
-      <td><strong>${escapeHtml(name)}</strong><br><span class="note">${escapeHtml(basename(pair.pair_key || pair.reference || ""))}</span></td>
+      <td>${workflowCellHtml(pair)}</td>
       <td>${thumbHtml(pair.ref_image_url, "Reference")}</td>
       <td>${thumbHtml(pair.cur_image_url, "Current")}</td>
       <td><span class="badge ${vd.cls}">${vd.label}</span>${mismatchNote}</td>
@@ -560,6 +733,7 @@ function renderUnmatched(summary) {
 
 function showSummary(summary) {
   currentSummary = summary;
+  enrichSummarySeedsFromNames(summary);
   document.getElementById("thumb-panel").classList.remove("hidden");
   document.getElementById("results-panel").classList.remove("hidden");
   document.getElementById("table-panel").classList.remove("hidden");
@@ -582,7 +756,7 @@ function showSummary(summary) {
   const curList = thumbCurFiles.length ? thumbCurFiles : curFiles;
   const hasThumbs = (summary.pairs || []).some(p => p.ref_image_url || p.cur_image_url);
   if (refList.length && curList.length && !hasThumbs) {
-    attachThumbnailsFromFolders(summary, refList, curList);
+    attachThumbnailsFromFolders(summary, refList, curList).then(() => renderTable(summary));
   }
 
   renderTable(summary);
@@ -666,7 +840,7 @@ async function runBrowserBatch(refList, curList, threshold, onProgress) {
       const refUrl = URL.createObjectURL(ref);
       const curUrl = URL.createObjectURL(cur);
       activeObjectUrls.push(refUrl, curUrl);
-      results.push({
+      const pairRecord = {
         pair_key: key,
         model: modelFromPairKey(key),
         reference: ref.name,
@@ -679,7 +853,9 @@ async function runBrowserBatch(refList, curList, threshold, onProgress) {
         error: null,
         headline: headlineForPair(metrics),
         metrics,
-      });
+      };
+      await enrichPairFromReferenceFile(pairRecord, ref);
+      results.push(pairRecord);
     } catch (e) {
       errors++;
       results.push({
@@ -830,9 +1006,9 @@ document.getElementById("thumb-cur-folder").addEventListener("change", e => {
   document.getElementById("thumb-cur-label").textContent = `Current: ${thumbCurFiles.length} files`;
   updateThumbAttachButton();
 });
-document.getElementById("btn-attach-thumbs").addEventListener("click", () => {
+document.getElementById("btn-attach-thumbs").addEventListener("click", async () => {
   if (!currentSummary || !thumbRefFiles.length || !thumbCurFiles.length) return;
-  attachThumbnailsFromFolders(currentSummary, thumbRefFiles, thumbCurFiles);
+  await attachThumbnailsFromFolders(currentSummary, thumbRefFiles, thumbCurFiles);
   renderTable(currentSummary);
 });
 
