@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 420" font-family="Segoe UI, Tahoma, sans-serif">
+  <defs>
+    <linearGradient id="inferno" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#000004"/>
+      <stop offset="25%" stop-color="#57106e"/>
+      <stop offset="50%" stop-color="#bc3754"/>
+      <stop offset="75%" stop-color="#f98e09"/>
+      <stop offset="100%" stop-color="#fcffa4"/>
+    </linearGradient>
+    <linearGradient id="ramp" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#000004"/>
+      <stop offset="50%" stop-color="#bc3754"/>
+      <stop offset="100%" stop-color="#fcffa4"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="820" height="420" fill="#0f1419"/>
+
+  <text x="20" y="28" fill="#e6edf3" font-size="16" font-weight="600">CLI visuals (--heatmap-dir)</text>
+  <text x="20" y="48" fill="#8b949e" font-size="12">Optional PNGs written when you pass --heatmap-dir visuals/</text>
+
+  <!-- Overview -->
+  <text x="20" y="82" fill="#3d8bfd" font-size="13" font-weight="600">overview_reference_vs_current.png</text>
+  <rect x="20" y="92" width="380" height="140" rx="6" fill="#1a222d" stroke="#2d3a4a"/>
+  <rect x="40" y="108" width="340" height="90" rx="4" fill="url(#inferno)" opacity="0.85"/>
+  <ellipse cx="120" cy="145" rx="28" ry="22" fill="#fcffa4" opacity="0.9"/>
+  <ellipse cx="280" cy="165" rx="18" ry="14" fill="#f98e09" opacity="0.8"/>
+  <text x="40" y="218" fill="#8b949e" font-size="10">Colour map of pixel difference (downscaled, max-pooled)</text>
+  <rect x="40" y="200" width="340" height="10" rx="2" fill="url(#ramp)"/>
+  <text x="40" y="228" fill="#8b949e" font-size="9">0  absolute diff (gain 8)  31.75+  |  threshold 1.0</text>
+
+  <!-- Worst region triptych -->
+  <text x="420" y="82" fill="#3d8bfd" font-size="13" font-weight="600">worst_region_1.png (and _2, &)</text>
+  <rect x="420" y="92" width="380" height="140" rx="6" fill="#1a222d" stroke="#2d3a4a"/>
+
+  <text x="432" y="108" fill="#8b949e" font-size="9">reference</text>
+  <rect x="432" y="112" width="100" height="90" rx="3" fill="#2d4a3a" stroke="#3d5a4a"/>
+  <circle cx="472" cy="152" r="18" fill="#4a7c59"/>
+  <rect x="455" y="175" width="34" height="12" rx="2" fill="#6b9b7a"/>
+
+  <text x="552" y="108" fill="#8b949e" font-size="9">current</text>
+  <rect x="552" y="112" width="100" height="90" rx="3" fill="#2d4a3a" stroke="#3d5a4a"/>
+  <circle cx="592" cy="152" r="18" fill="#4a7c59"/>
+  <rect x="575" y="175" width="34" height="14" rx="2" fill="#8bc49a"/>
+
+  <text x="672" y="108" fill="#8b949e" font-size="9">difference</text>
+  <rect x="672" y="112" width="100" height="90" rx="3" fill="#131a23" stroke="#2d3a4a"/>
+  <rect x="698" y="168" width="48" height="28" rx="2" fill="#f98e09" opacity="0.95"/>
+
+  <text x="432" y="218" fill="#8b949e" font-size="10">Zoomed triptych for the worst block  shows what changed</text>
+
+  <!-- Optional extras row -->
+  <text x="20" y="268" fill="#3d8bfd" font-size="13" font-weight="600">Other optional outputs</text>
+
+  <rect x="20" y="280" width="250" height="72" rx="6" fill="#1a222d" stroke="#2d3a4a"/>
+  <text x="32" y="302" fill="#e6edf3" font-size="11">--heatmap raw.png</text>
+  <text x="32" y="318" fill="#8b949e" font-size="10">Full-res greyscale diff map</text>
+  <rect x="32" y="328" width="180" height="14" rx="2" fill="#333"/>
+
+  <rect x="285" y="280" width="250" height="72" rx="6" fill="#1a222d" stroke="#2d3a4a"/>
+  <text x="297" y="302" fill="#e6edf3" font-size="11">--detect-backend owlv2</text>
+  <text x="297" y="318" fill="#8b949e" font-size="10">detection_reference.png / detection_current.png</text>
+  <rect x="297" y="328" width="80" height="14" rx="2" fill="#2d4a3a" stroke="#3fb950" stroke-width="1"/>
+  <text x="385" y="339" fill="#3fb950" font-size="9">box + legend</text>
+
+  <rect x="550" y="280" width="250" height="72" rx="6" fill="#1a222d" stroke="#2d3a4a"/>
+  <text x="562" y="302" fill="#e6edf3" font-size="11">report.json + report.txt</text>
+  <text x="562" y="318" fill="#8b949e" font-size="10">Metrics, verdict, plain-language summary</text>
+  <text x="562" y="338" fill="#8b949e" font-size="9">{ mean_abs, p99_9, regions, & }</text>
+
+  <text x="20" y="395" fill="#8b949e" font-size="11">Pass --heatmap-dir on single compare; batch mode writes one JSON per pair (no heatmaps unless you add that in your wrapper).</text>
+</svg>
