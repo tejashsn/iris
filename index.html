@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IRIS — Image Regression Inspection Suite</title>
+<style>
+:root {
+  --bg: #0f1419;
+  --panel: #1a222d;
+  --border: #2d3a4a;
+  --text: #e6edf3;
+  --muted: #8b949e;
+  --accent: #3d8bfd;
+  --pass: #3fb950;
+  --sans: "Segoe UI", Tahoma, sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; font-family: var(--sans); background: var(--bg); color: var(--text); line-height: 1.6; }
+header { padding: 2.5rem 2rem 2rem; text-align: center; border-bottom: 1px solid var(--border); }
+header h1 { margin: 0 0 .5rem; font-size: 2rem; letter-spacing: .06em; }
+header p { margin: 0 auto; max-width: 60ch; color: var(--muted); }
+main { max-width: 900px; margin: 0 auto; padding: 2rem; display: grid; gap: 1.2rem; }
+.card {
+  display: block; background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+  padding: 1.4rem 1.5rem; text-decoration: none; color: inherit; transition: border-color .15s;
+}
+.card:hover { border-color: var(--accent); }
+.card h2 { margin: 0 0 .4rem; font-size: 1.2rem; color: var(--accent); }
+.card p { margin: 0; color: var(--muted); font-size: .92rem; }
+.tag { display: inline-block; font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; padding: .12rem .4rem; border-radius: 4px; margin-top: .6rem; }
+.tag.live { background: rgba(63,185,80,.15); color: var(--pass); border: 1px solid var(--pass); }
+footer { text-align: center; padding: 2rem; color: var(--muted); font-size: .82rem; }
+</style>
+</head>
+<body>
+<header>
+  <h1>IRIS</h1>
+  <p>Image Regression Inspection Suite — pixel-level drift measurement for ComfyUI benchmark outputs across software builds.</p>
+</header>
+<main>
+  <a class="card" href="iris-batch.html?demo=1">
+    <h2>Batch folder comparison</h2>
+    <p>Compare two folders of benchmark images. View same/different status, all IRIS metrics, and unmatched files. Demo loads a real ComfyUI 10.1.0 build comparison.</p>
+    <span class="tag live">Manager demo ready</span>
+  </a>
+  <a class="card" href="iris-triage.html">
+    <h2>Single-image triage</h2>
+    <p>Deep-dive one image pair with heatmaps, region analysis, plain-language summary, and full JSON report export.</p>
+  </a>
+</main>
+<footer>All processing runs in your browser. Images are not uploaded to any server.</footer>
+</body>
+</html>

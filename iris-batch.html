@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IRIS Batch Comparison</title>
+<style>
+:root {
+  --bg: #0f1419;
+  --panel: #1a222d;
+  --panel-2: #131a23;
+  --border: #2d3a4a;
+  --text: #e6edf3;
+  --muted: #8b949e;
+  --accent: #3d8bfd;
+  --pass: #3fb950;
+  --fail: #f85149;
+  --warn: #d29922;
+  --mono: Consolas, "Courier New", monospace;
+  --sans: "Segoe UI", Tahoma, sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; font-family: var(--sans); background: var(--bg); color: var(--text); line-height: 1.55; }
+header { padding: 1.4rem 2rem 1rem; border-bottom: 1px solid var(--border); }
+header h1 { margin: 0 0 .2rem; font-size: 1.5rem; letter-spacing: .04em; }
+header p { margin: 0; color: var(--muted); max-width: 90ch; font-size: .9rem; }
+nav.top-links { margin-top: .6rem; font-size: .85rem; }
+nav.top-links a { color: var(--accent); text-decoration: none; margin-right: 1rem; }
+main { padding: 1.4rem 2rem 3rem; display: grid; gap: 1.2rem; max-width: 1600px; }
+.panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.1rem; }
+.panel h2 { margin: 0 0 .8rem; font-size: .78rem; color: var(--muted); text-transform: uppercase; letter-spacing: .1em; }
+label { display: block; font-size: .8rem; color: var(--muted); margin-bottom: .2rem; }
+input[type=text], input[type=number], select {
+  width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--border);
+  border-radius: 6px; padding: .4rem .55rem; margin-bottom: .55rem; font-family: inherit; font-size: .88rem;
+}
+button, .btn {
+  background: var(--accent); color: #fff; border: none; border-radius: 6px; padding: .45rem .85rem;
+  font-size: .85rem; cursor: pointer; margin-right: .45rem; margin-bottom: .45rem;
+}
+button.secondary { background: var(--panel-2); border: 1px solid var(--border); color: var(--text); }
+button:disabled { opacity: .45; cursor: not-allowed; }
+.grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.grid-3 { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+.stat-card { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: .85rem 1rem; }
+.stat-card .label { font-size: .72rem; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+.stat-card .value { font-size: 1.8rem; font-weight: 700; font-family: var(--mono); margin-top: .15rem; }
+.stat-card.pass .value { color: var(--pass); }
+.stat-card.warn .value { color: var(--warn); }
+.stat-card.fail .value { color: var(--fail); }
+.exec-summary { font-size: 1.15rem; font-weight: 600; line-height: 1.45; margin: 0 0 .5rem; }
+.exec-meta { color: var(--muted); font-size: .85rem; }
+table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+th, td { text-align: left; padding: .38rem .5rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; position: sticky; top: 0; background: var(--panel); }
+td.num, th.num { text-align: right; font-family: var(--mono); white-space: nowrap; }
+.badge {
+  display: inline-block; font-size: .68rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .06em; padding: .15rem .45rem; border-radius: 4px;
+}
+.badge.same { background: rgba(63,185,80,.15); color: var(--pass); border: 1px solid var(--pass); }
+.badge.differ { background: rgba(210,153,34,.15); color: var(--warn); border: 1px solid var(--warn); }
+.badge.error { background: rgba(248,81,73,.15); color: var(--fail); border: 1px solid var(--fail); }
+.note { color: var(--muted); font-size: .82rem; }
+.hidden { display: none !important; }
+.table-wrap { overflow: auto; max-height: 520px; border: 1px solid var(--border); border-radius: 6px; }
+details.row-detail summary { cursor: pointer; color: var(--accent); font-size: .78rem; }
+details.row-detail pre {
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px;
+  padding: .6rem; font-family: var(--mono); font-size: .72rem; overflow: auto; max-height: 200px;
+}
+.toolbar { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-bottom: .75rem; }
+.toolbar label { margin: 0; display: inline-flex; align-items: center; gap: .35rem; }
+.unmatched-list { margin: .3rem 0 0; padding-left: 1.1rem; font-family: var(--mono); font-size: .78rem; }
+.glossary-table td:first-child { font-family: var(--mono); white-space: nowrap; }
+.progress { color: var(--muted); font-size: .85rem; padding: .5rem 0; }
+.folder-btn { display: inline-block; background: var(--panel-2); border: 1px dashed var(--border); border-radius: 6px; padding: .6rem .9rem; cursor: pointer; font-size: .85rem; margin-bottom: .5rem; }
+.folder-btn.loaded { border-style: solid; color: var(--text); }
+@media (max-width: 900px) { main { padding: 1rem; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>IRIS Batch Comparison</h1>
+  <p>Compare two folders of benchmark images side by side. IRIS measures pixel-level drift between builds — every percentage is closeness to the reference, not visual quality. Runs in your browser; images never leave your machine unless you load a pre-built JSON report.</p>
+  <nav class="top-links">
+    <a href="index.html">IRIS home</a>
+    <a href="iris-triage.html">Single-image triage</a>
+  </nav>
+</header>
+<main>
+
+  <section class="panel" id="setup-panel">
+    <h2>Load or compare</h2>
+    <div class="grid-3">
+      <div>
+        <p class="note">Fastest for a demo: open the pre-loaded ComfyUI build comparison.</p>
+        <button type="button" id="btn-demo">Load demo report</button>
+      </div>
+      <div>
+        <p class="note">Already ran the CLI? Upload <code>batch_summary.json</code>.</p>
+        <input type="file" id="load-json" accept="application/json,.json" class="hidden">
+        <button type="button" class="secondary" id="btn-load-json">Upload batch_summary.json</button>
+      </div>
+      <div>
+        <p class="note">Compare two image folders directly in the browser (PNG/JPEG).</p>
+        <label>Threshold (required)<input type="number" id="threshold" value="1.0" step="0.1" min="0"></label>
+        <label class="folder-btn" id="ref-folder-btn"><span id="ref-folder-label">Select reference folder</span><input type="file" id="ref-folder" webkitdirectory multiple class="hidden"></label>
+        <label class="folder-btn" id="cur-folder-btn"><span id="cur-folder-label">Select current folder</span><input type="file" id="cur-folder" webkitdirectory multiple class="hidden"></label>
+        <button type="button" id="btn-compare" disabled>Compare folders</button>
+        <p class="progress hidden" id="compare-progress"></p>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel hidden" id="results-panel">
+    <h2>Executive summary</h2>
+    <p class="exec-summary" id="exec-summary"></p>
+    <p class="exec-meta" id="exec-meta"></p>
+    <div class="grid" style="margin-top:1rem" id="stat-cards"></div>
+  </section>
+
+  <section class="panel hidden" id="table-panel">
+    <h2>Per-image results</h2>
+    <div class="toolbar">
+      <label>Filter
+        <select id="filter-status">
+          <option value="all">All pairs</option>
+          <option value="same">Same only</option>
+          <option value="differ">Different only</option>
+          <option value="error">Errors only</option>
+        </select>
+      </label>
+      <button type="button" class="secondary" id="btn-download-json">Download JSON</button>
+      <button type="button" class="secondary" id="btn-download-csv">Download CSV</button>
+    </div>
+    <div class="table-wrap">
+      <table id="results-table">
+        <thead>
+          <tr>
+            <th>Workflow / image</th>
+            <th>Status</th>
+            <th class="num">Similarity %</th>
+            <th class="num">Mean abs</th>
+            <th class="num">Mean signed</th>
+            <th class="num">Max abs</th>
+            <th class="num">P99.9</th>
+            <th class="num">% pixels changed</th>
+            <th class="num">% over threshold</th>
+            <th class="num">Signed ratio</th>
+            <th>Summary</th>
+          </tr>
+        </thead>
+        <tbody id="results-body"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel hidden" id="unmatched-panel">
+    <h2>Unmatched files (not compared)</h2>
+    <p class="note">These images exist in only one folder. IRIS pairs by matching filename across folders.</p>
+    <div id="unmatched-content"></div>
+  </section>
+
+  <section class="panel">
+    <h2>What each metric means</h2>
+    <div class="table-wrap" style="max-height:none">
+      <table class="glossary-table">
+        <thead><tr><th>Metric</th><th>Plain English</th><th>How to read it</th></tr></thead>
+        <tbody id="glossary-body"></tbody>
+      </table>
+    </div>
+  </section>
+
+</main>
+<script>
+"use strict";
+
+const SCHEMA_VERSION = "2.1.0";
+const IMAGE_SUFFIXES = new Set([".png", ".jpg", ".jpeg"]);
+const PAIR_KEY_PATTERN = /^\d+_(?<model>.+)__seed_.+$/;
+let currentSummary = null;
+let refFiles = [];
+let curFiles = [];
+
+const GLOSSARY = [
+  ["Status: SAME", "Every RGB pixel matches exactly between reference and current.", "Strongest possible match. No drift at all."],
+  ["Status: DIFFER", "At least one pixel differs between the two images.", "Open details for how large and how widespread the difference is."],
+  ["bitwise_identical", "True when every R, G, and B sample is exactly equal.", "Same as Status SAME."],
+  ["similarity_pct", "100 × (1 − mean_abs / 255). Higher = closer to reference.", "100% = identical. Healthy cross-GPU drift is often still ~99.5%+ similarity."],
+  ["mean_abs", "Average absolute RGB difference on a 0–255 scale.", "Healthy same-seed drift: ~0.3–0.6. Different seed: ~57–84. Zero = identical."],
+  ["mean_signed", "Average signed difference (current − reference).", "Positive = current tends brighter; negative = darker. Near zero with low mean_abs = balanced noise."],
+  ["signed_ratio", "|mean_signed| / mean_abs. How directional vs scattered the drift is.", "Near 1 = uniform shift (e.g. all pixels slightly brighter). Near 0 = scattered +/- noise."],
+  ["max_abs", "Largest single-channel absolute difference in the frame.", "Spikes from outliers; pair with p99_9 for tail behaviour."],
+  ["p99_9", "99.9th percentile of absolute per-sample differences.", "Typical worst-case sample level excluding extreme outliers."],
+  ["pct_pixels_changed", "Percent of pixels where any channel differs.", "0% = identical. Different seeds often change 99%+ of pixels."],
+  ["pct_over_t", "Percent of RGB samples whose absolute difference exceeds your threshold.", "Uses the threshold you set (default 1.0). Not a pass/fail gate by itself."],
+  ["within_t_pct", "100 − pct_over_t. Samples within threshold.", "Complement of pct_over_t."],
+  ["level_distribution", "How changed pixels bucket by magnitude (0, 1, 2, 3–4, 5–8, >8).", "Shows whether drift is tiny rounding vs large compositional change."],
+  ["per_channel_mean", "Mean absolute difference per R, G, B channel.", "Reveals colour-channel skew."],
+  ["per_channel_mean_signed", "Mean signed difference per channel.", "Which channel tends brighter or darker."],
+  ["threshold", "Your chosen cutoff for pct_over_t (required, no default in CLI).", "IRIS does not pick this for you; it only reports against it."],
+  ["gate_verdict", "PASS / FAIL / REPORT_ONLY when you configure numeric gate limits.", "Batch UI shows REPORT_ONLY unless you set gates in the CLI."],
+];
+
+function escapeHtml(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function basename(path) {
+  const parts = String(path).replace(/\\/g, "/").split("/");
+  return parts[parts.length - 1] || path;
+}
+
+function pairKeyFromStem(stem) {
+  const m = stem.match(PAIR_KEY_PATTERN);
+  if (m && m.groups && m.groups.model) return m.groups.model;
+  return stem;
+}
+
+function modelFromPairKey(key) {
+  const idx = key.indexOf("__seed_");
+  return idx >= 0 ? key.slice(0, idx) : key;
+}
+
+function fixed(v, n) {
+  return typeof v === "number" && Number.isFinite(v) ? v.toFixed(n) : "—";
+}
+
+function renderGlossary() {
+  document.getElementById("glossary-body").innerHTML = GLOSSARY.map(
+    ([name, plain, read]) => `<tr><td>${escapeHtml(name)}</td><td>${escapeHtml(plain)}</td><td>${escapeHtml(read)}</td></tr>`
+  ).join("");
+}
+
+function sameSamples(a, b) {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+function percentileSorted(sorted, p) {
+  const n = sorted.length;
+  if (n === 0) return 0;
+  const rank = (p / 100) * (n - 1);
+  const lower = Math.floor(rank);
+  const upper = Math.ceil(rank);
+  const weight = rank - lower;
+  if (upper >= n) return sorted[n - 1];
+  return sorted[lower] * (1 - weight) + sorted[upper] * weight;
+}
+
+function pixelLevelDistribution(ref, cur) {
+  const pixelCount = ref.width * ref.height;
+  const buckets = { "0": 0, "1": 0, "2": 0, "3_4": 0, "5_8": 0, "gt_8": 0 };
+  let changed = 0;
+  for (let p = 0; p < pixelCount; p++) {
+    const i = p * 3;
+    const mag = Math.max(
+      Math.abs(cur.rgb[i] - ref.rgb[i]),
+      Math.abs(cur.rgb[i + 1] - ref.rgb[i + 1]),
+      Math.abs(cur.rgb[i + 2] - ref.rgb[i + 2])
+    );
+    if (mag > 0) changed++;
+    if (mag === 0) buckets["0"]++;
+    else if (mag <= 1) buckets["1"]++;
+    else if (mag <= 2) buckets["2"]++;
+    else if (mag <= 4) buckets["3_4"]++;
+    else if (mag <= 8) buckets["5_8"]++;
+    else buckets["gt_8"]++;
+  }
+  const distribution = {};
+  for (const key of Object.keys(buckets)) {
+    distribution[key] = pixelCount ? (buckets[key] / pixelCount) * 100 : 0;
+  }
+  return { pct_pixels_changed: pixelCount ? (changed / pixelCount) * 100 : 0, level_distribution: distribution };
+}
+
+function computeMetrics(ref, cur, threshold) {
+  const sampleCount = ref.rgb.length;
+  if (sameSamples(ref.rgb, cur.rgb)) {
+    return {
+      bitwise_identical: true, mean_abs: 0, mean_signed: 0, p99_9: 0, max_abs: 0, pct_over_t: 0,
+      pct_pixels_changed: 0,
+      level_distribution: { "0": 100, "1": 0, "2": 0, "3_4": 0, "5_8": 0, "gt_8": 0 },
+      per_channel_mean: { R: 0, G: 0, B: 0 },
+      per_channel_mean_signed: { R: 0, G: 0, B: 0 },
+      signed_ratio: 0, similarity_pct: 100, within_t_pct: 100,
+      sample_count: sampleCount, threshold,
+    };
+  }
+  const diffs = new Float32Array(sampleCount);
+  const channelSums = [0, 0, 0], channelSignedSums = [0, 0, 0], channelCounts = [0, 0, 0];
+  let maxAbs = 0, over = 0, sum = 0, signedSum = 0;
+  for (let i = 0; i < sampleCount; i++) {
+    const signed = cur.rgb[i] - ref.rgb[i];
+    signedSum += signed;
+    const d = Math.abs(signed);
+    diffs[i] = d;
+    sum += d;
+    if (d > maxAbs) maxAbs = d;
+    if (d > threshold) over++;
+    const ch = i % 3;
+    channelSums[ch] += d;
+    channelSignedSums[ch] += signed;
+    channelCounts[ch]++;
+  }
+  const meanAbs = sum / sampleCount;
+  const meanSigned = signedSum / sampleCount;
+  const sorted = Float32Array.from(diffs).sort();
+  const pctOverT = (over / sampleCount) * 100;
+  const pixelStats = pixelLevelDistribution(ref, cur);
+  return {
+    bitwise_identical: false, mean_abs: meanAbs, mean_signed: meanSigned,
+    p99_9: percentileSorted(sorted, 99.9), max_abs: maxAbs, pct_over_t: pctOverT,
+    pct_pixels_changed: pixelStats.pct_pixels_changed,
+    level_distribution: pixelStats.level_distribution,
+    per_channel_mean: { R: channelSums[0] / channelCounts[0], G: channelSums[1] / channelCounts[1], B: channelSums[2] / channelCounts[2] },
+    per_channel_mean_signed: { R: channelSignedSums[0] / channelCounts[0], G: channelSignedSums[1] / channelCounts[1], B: channelSignedSums[2] / channelCounts[2] },
+    signed_ratio: meanAbs > 0 ? Math.abs(meanSigned) / meanAbs : 0,
+    similarity_pct: 100 * (1 - meanAbs / 255),
+    within_t_pct: 100 - pctOverT,
+    sample_count: sampleCount, threshold,
+  };
+}
+
+function headlineForPair(metrics) {
+  if (metrics.bitwise_identical) {
+    return "current is bitwise identical to reference: every RGB sample matches exactly, so there is no drift to characterise.";
+  }
+  return `current differs from reference: mean absolute drift ${metrics.mean_abs.toFixed(4)} on a 0–255 scale, ${metrics.pct_pixels_changed.toFixed(2)}% of pixels changed.`;
+}
+
+function executiveSummary(summary) {
+  const c = summary.counts || {};
+  const ref = summary.input_dirs?.reference || "reference";
+  const cur = summary.input_dirs?.current || "current";
+  const compared = c.pairs_compared || 0;
+  const identical = c.bitwise_identical || 0;
+  const differ = c.differ || 0;
+  const errors = c.errors || 0;
+  const unmatchedRef = c.unmatched_reference || 0;
+  const unmatchedCur = c.unmatched_current || 0;
+
+  if (errors > 0) {
+    return `${errors} of ${compared} pairs failed to compare. ${identical} identical, ${differ} different. Review errors before trusting the batch.`;
+  }
+  if (differ === 0 && identical === compared && compared > 0) {
+    return `All ${compared} matched image pairs between “${ref}” and “${cur}” are bitwise identical — every RGB pixel matches exactly. No measurable drift between these builds for the compared workflows.`;
+  }
+  if (differ > 0) {
+    return `${differ} of ${compared} pairs differ between “${ref}” and “${cur}”. ${identical} are bitwise identical. See the table for per-workflow metrics.`;
+  }
+  return `Compared ${compared} image pairs between “${ref}” and “${cur}”.`;
+}
+
+function statCardsHtml(c) {
+  const cards = [
+    ["Pairs compared", c.pairs_compared, ""],
+    ["Bitwise identical", c.bitwise_identical, "pass"],
+    ["Different", c.differ, c.differ ? "warn" : ""],
+    ["Errors", c.errors, c.errors ? "fail" : ""],
+    ["Unmatched (reference)", c.unmatched_reference, c.unmatched_reference ? "warn" : ""],
+    ["Unmatched (current)", c.unmatched_current, c.unmatched_current ? "warn" : ""],
+  ];
+  return cards.map(([label, val, cls]) =>
+    `<div class="stat-card ${cls}"><div class="label">${escapeHtml(label)}</div><div class="value">${val ?? 0}</div></div>`
+  ).join("");
+}
+
+function pairStatus(pair) {
+  if (pair.error) return { label: "ERROR", cls: "error" };
+  if (pair.bitwise_identical || pair.metrics?.bitwise_identical) return { label: "SAME", cls: "same" };
+  return { label: "DIFFER", cls: "differ" };
+}
+
+function renderTable(summary) {
+  const filter = document.getElementById("filter-status").value;
+  const tbody = document.getElementById("results-body");
+  const rows = (summary.pairs || []).filter(pair => {
+    const st = pairStatus(pair);
+    if (filter === "all") return true;
+    if (filter === "same") return st.cls === "same";
+    if (filter === "differ") return st.cls === "differ";
+    if (filter === "error") return st.cls === "error";
+    return true;
+  });
+
+  tbody.innerHTML = rows.map(pair => {
+    const st = pairStatus(pair);
+    const m = pair.metrics || {};
+    const name = pair.model || modelFromPairKey(pair.pair_key || basename(pair.reference));
+    const hl = pair.headline || headlineForPair(m);
+    return `<tr>
+      <td><strong>${escapeHtml(name)}</strong><br><span class="note">${escapeHtml(basename(pair.pair_key || pair.reference || ""))}</span></td>
+      <td><span class="badge ${st.cls}">${st.label}</span></td>
+      <td class="num">${pair.error ? "—" : fixed(m.similarity_pct, 2)}</td>
+      <td class="num">${pair.error ? "—" : fixed(m.mean_abs, 4)}</td>
+      <td class="num">${pair.error ? "—" : fixed(m.mean_signed, 4)}</td>
+      <td class="num">${pair.error ? "—" : fixed(m.max_abs, 2)}</td>
+      <td class="num">${pair.error ? "—" : fixed(m.p99_9, 2)}</td>
+      <td class="num">${pair.error ? "—" : fixed(m.pct_pixels_changed, 2)}</td>
+      <td class="num">${pair.error ? "—" : fixed(m.pct_over_t, 4)}</td>
+      <td class="num">${pair.error ? "—" : fixed(m.signed_ratio, 3)}</td>
+      <td>${pair.error ? `<span class="note">${escapeHtml(pair.error)}</span>` : escapeHtml(hl)}
+        <details class="row-detail"><summary>All metrics</summary><pre>${escapeHtml(JSON.stringify(m, null, 2))}</pre></details>
+      </td>
+    </tr>`;
+  }).join("");
+}
+
+function renderUnmatched(summary) {
+  const u = summary.unmatched || {};
+  const parts = [];
+  if (u.reference && u.reference.length) {
+    parts.push(`<p><strong>Only in reference (${u.reference.length})</strong></p><ul class="unmatched-list">${u.reference.map(f => `<li>${escapeHtml(f)}</li>`).join("")}</ul>`);
+  }
+  if (u.current && u.current.length) {
+    parts.push(`<p><strong>Only in current (${u.current.length})</strong></p><ul class="unmatched-list">${u.current.map(f => `<li>${escapeHtml(f)}</li>`).join("")}</ul>`);
+  }
+  const panel = document.getElementById("unmatched-panel");
+  if (!parts.length) {
+    panel.classList.add("hidden");
+    return;
+  }
+  panel.classList.remove("hidden");
+  document.getElementById("unmatched-content").innerHTML = parts.join("");
+}
+
+function showSummary(summary) {
+  currentSummary = summary;
+  document.getElementById("results-panel").classList.remove("hidden");
+  document.getElementById("table-panel").classList.remove("hidden");
+  document.getElementById("exec-summary").textContent = executiveSummary(summary);
+  const meta = [];
+  if (summary.input_dirs?.reference) meta.push(`Reference: ${summary.input_dirs.reference}`);
+  if (summary.input_dirs?.current) meta.push(`Current: ${summary.input_dirs.current}`);
+  if (summary.timestamp_utc) meta.push(`Generated: ${summary.timestamp_utc}`);
+  if (summary.schema_version) meta.push(`Schema ${summary.schema_version}`);
+  document.getElementById("exec-meta").textContent = meta.join(" · ");
+  document.getElementById("stat-cards").innerHTML = statCardsHtml(summary.counts || {});
+  renderTable(summary);
+  renderUnmatched(summary);
+}
+
+function indexFiles(fileList) {
+  const byKey = new Map();
+  const duplicates = new Set();
+  for (const file of fileList) {
+    const name = file.name;
+    const dot = name.lastIndexOf(".");
+    if (dot < 0) continue;
+    const ext = name.slice(dot).toLowerCase();
+    if (!IMAGE_SUFFIXES.has(ext)) continue;
+    const stem = name.slice(0, dot);
+    const key = pairKeyFromStem(stem);
+    if (byKey.has(key)) duplicates.add(key);
+    else byKey.set(key, file);
+  }
+  return { byKey, duplicates };
+}
+
+function discoverPairs(refIndex, curIndex) {
+  const keys = new Set([...refIndex.byKey.keys(), ...curIndex.byKey.keys()]);
+  const pairs = [];
+  const unmatched = { reference: [], current: [], baseline: [] };
+  for (const key of [...keys].sort()) {
+    const ref = refIndex.byKey.get(key);
+    const cur = curIndex.byKey.get(key);
+    if (ref && cur) pairs.push({ key, ref, cur });
+    else if (ref) unmatched.reference.push(ref.name);
+    else if (cur) unmatched.current.push(cur.name);
+  }
+  return { pairs, unmatched };
+}
+
+function loadImageRgb(file) {
+  return file.arrayBuffer().then(buffer => new Promise((resolve, reject) => {
+    const blob = new Blob([buffer]);
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      ctx.drawImage(img, 0, 0);
+      const { data, width, height } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const rgb = new Float32Array(width * height * 3);
+      for (let i = 0, o = 0; i < data.length; i += 4) {
+        rgb[o++] = data[i]; rgb[o++] = data[i + 1]; rgb[o++] = data[i + 2];
+      }
+      URL.revokeObjectURL(url);
+      resolve({ rgb, width, height, name: file.name });
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error(`Could not decode ${file.name}`)); };
+    img.src = url;
+  }));
+}
+
+async function runBrowserBatch(refList, curList, threshold, onProgress) {
+  const refIndex = indexFiles(refList);
+  const curIndex = indexFiles(curList);
+  const { pairs, unmatched } = discoverPairs(refIndex, curIndex);
+  const results = [];
+  let identical = 0, differ = 0, errors = 0;
+
+  for (let i = 0; i < pairs.length; i++) {
+    const { key, ref, cur } = pairs[i];
+    onProgress(`Comparing ${i + 1} / ${pairs.length}: ${ref.name}`);
+    try {
+      const refImg = await loadImageRgb(ref);
+      const curImg = await loadImageRgb(cur);
+      if (refImg.width !== curImg.width || refImg.height !== curImg.height) {
+        throw new Error(`Size mismatch: ${refImg.width}x${refImg.height} vs ${curImg.width}x${curImg.height}`);
+      }
+      const metrics = computeMetrics(refImg, curImg, threshold);
+      const bitwise = metrics.bitwise_identical;
+      if (bitwise) identical++; else differ++;
+      results.push({
+        pair_key: key,
+        model: modelFromPairKey(key),
+        reference: ref.name,
+        current: cur.name,
+        bitwise_identical: bitwise,
+        gate_verdict: "REPORT_ONLY",
+        gate_exit: 0,
+        error: null,
+        headline: headlineForPair(metrics),
+        metrics,
+      });
+    } catch (e) {
+      errors++;
+      results.push({
+        pair_key: key,
+        model: modelFromPairKey(key),
+        reference: ref.name,
+        current: cur.name,
+        bitwise_identical: false,
+        error: e.message,
+        metrics: null,
+      });
+    }
+  }
+
+  return {
+    mode: "batch",
+    schema_version: SCHEMA_VERSION,
+    three_way: false,
+    timestamp_utc: new Date().toISOString(),
+    input_dirs: {
+      reference: refList[0]?.webkitRelativePath?.split("/")[0] || "reference folder",
+      current: curList[0]?.webkitRelativePath?.split("/")[0] || "current folder",
+    },
+    counts: {
+      pairs_scheduled: pairs.length,
+      pairs_compared: pairs.length,
+      bitwise_identical: identical,
+      differ,
+      errors,
+      unmatched_reference: unmatched.reference.length,
+      unmatched_current: unmatched.current.length,
+      unmatched_baseline: 0,
+    },
+    pairs: results,
+    unmatched,
+  };
+}
+
+function downloadText(filename, text, mime) {
+  const blob = new Blob([text], { type: mime });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function summaryToCsv(summary) {
+  const header = ["model", "status", "bitwise_identical", "mean_abs", "mean_signed", "p99_9", "max_abs", "pct_over_t", "pct_pixels_changed", "similarity_pct", "signed_ratio", "error"];
+  const rows = (summary.pairs || []).map(p => {
+    const m = p.metrics || {};
+    const st = pairStatus(p).label;
+    return [
+      p.model || modelFromPairKey(p.pair_key || ""),
+      st,
+      p.bitwise_identical,
+      m.mean_abs ?? "",
+      m.mean_signed ?? "",
+      m.p99_9 ?? "",
+      m.max_abs ?? "",
+      m.pct_over_t ?? "",
+      m.pct_pixels_changed ?? "",
+      m.similarity_pct ?? "",
+      m.signed_ratio ?? "",
+      p.error || "",
+    ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(",");
+  });
+  return [header.join(","), ...rows].join("\n");
+}
+
+document.getElementById("btn-demo").addEventListener("click", () => {
+  fetch("samples/comfyui-build-20260814-vs-20260818.json")
+    .then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
+    .then(showSummary)
+    .catch(e => alert("Could not load demo: " + e.message + ". Open this page from the repo (or GitHub Pages) so the sample file is reachable."));
+});
+
+document.getElementById("btn-load-json").addEventListener("click", () => document.getElementById("load-json").click());
+document.getElementById("load-json").addEventListener("change", e => {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  file.text().then(text => {
+    try { showSummary(JSON.parse(text)); }
+    catch (err) { alert("Invalid JSON: " + err.message); }
+  });
+});
+
+document.getElementById("ref-folder").addEventListener("change", e => {
+  refFiles = [...(e.target.files || [])];
+  document.getElementById("ref-folder-btn").classList.add("loaded");
+  document.getElementById("ref-folder-label").textContent = `Reference: ${refFiles.length} files`;
+  document.getElementById("btn-compare").disabled = !(refFiles.length && curFiles.length);
+});
+document.getElementById("cur-folder").addEventListener("change", e => {
+  curFiles = [...(e.target.files || [])];
+  document.getElementById("cur-folder-btn").classList.add("loaded");
+  document.getElementById("cur-folder-label").textContent = `Current: ${curFiles.length} files`;
+  document.getElementById("btn-compare").disabled = !(refFiles.length && curFiles.length);
+});
+
+document.getElementById("btn-compare").addEventListener("click", async () => {
+  const threshold = Number(document.getElementById("threshold").value);
+  if (!Number.isFinite(threshold) || threshold < 0) { alert("Enter a valid threshold."); return; }
+  const prog = document.getElementById("compare-progress");
+  prog.classList.remove("hidden");
+  document.getElementById("btn-compare").disabled = true;
+  try {
+    const summary = await runBrowserBatch(refFiles, curFiles, threshold, msg => { prog.textContent = msg; });
+    prog.classList.add("hidden");
+    showSummary(summary);
+  } catch (e) {
+    prog.textContent = "Error: " + e.message;
+  } finally {
+    document.getElementById("btn-compare").disabled = false;
+  }
+});
+
+document.getElementById("filter-status").addEventListener("change", () => {
+  if (currentSummary) renderTable(currentSummary);
+});
+
+document.getElementById("btn-download-json").addEventListener("click", () => {
+  if (!currentSummary) return;
+  downloadText("batch_summary.json", JSON.stringify(currentSummary, null, 2), "application/json");
+});
+
+document.getElementById("btn-download-csv").addEventListener("click", () => {
+  if (!currentSummary) return;
+  downloadText("batch_summary.csv", summaryToCsv(currentSummary), "text/csv");
+});
+
+renderGlossary();
+
+if (new URLSearchParams(location.search).get("demo") === "1") {
+  document.getElementById("btn-demo").click();
+}
+</script>
+</body>
+</html>

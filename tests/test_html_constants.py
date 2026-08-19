@@ -23,6 +23,7 @@ from iris.regions import BROAD_SPREAD_BLOCK_FRACTION, CONCENTRATION_TARGET_PCT
 from iris.report import SCHEMA_VERSION
 
 HTML_PATH = Path(__file__).resolve().parents[1] / "iris-triage.html"
+BATCH_HTML_PATH = Path(__file__).resolve().parents[1] / "iris-batch.html"
 
 
 @pytest.fixture(scope="module")
@@ -36,6 +37,14 @@ def test_html_exists_and_is_self_contained(html):
     assert "http://" not in html
     assert "https://" not in html
     assert "cdn" not in html.lower()
+
+
+def test_batch_html_exists():
+    text = BATCH_HTML_PATH.read_text(encoding="utf-8")
+    assert BATCH_HTML_PATH.exists()
+    assert "<script src=" not in text
+    assert 'id="results-table"' in text
+    assert "Load demo report" in text
 
 
 def test_schema_version_matches(html):

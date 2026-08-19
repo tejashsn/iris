@@ -64,7 +64,31 @@ iris-compare \
 
 `--threshold` is **required** and has **no default**. It defines `pct_over_t` only and is not itself a pass/fail cut.
 
-### Browser triage
+### Batch folder comparison (CLI)
+
+Compare every matching PNG/JPEG across two build output folders:
+
+```bash
+python -m iris.cli \
+  --reference-dir /path/to/build-A \
+  --current-dir /path/to/build-B \
+  --threshold 1.0 \
+  --out /path/to/batch-report
+```
+
+Writes `batch_summary.json`, `batch_summary.csv`, and one JSON report per matched pair. Pairs images by filename (same workflow + seed name in both folders).
+
+### Browser batch dashboard
+
+Open `iris-batch.html` (or the hosted demo at `https://tejashsn.github.io/iris/iris-batch.html?demo=1`). Three ways to view results:
+
+1. **Demo report** — pre-loaded ComfyUI build comparison (`?demo=1`)
+2. **Upload** `batch_summary.json` from the CLI
+3. **Compare two folders** directly in the browser (images never leave your machine)
+
+The dashboard shows an executive summary, same/different status per workflow, all IRIS metrics in plain language, and unmatched files.
+
+### Browser triage (single image)
 
 Open `iris-triage.html` directly (`file://`). Drag and drop reference, optional baseline, and current images. No server, no CDN, no install, nothing leaves the machine. It strips alpha and computes on RGB samples so it matches Python exactly, and it parses ComfyUI PNG metadata in JavaScript so provenance checking works there too.
 
