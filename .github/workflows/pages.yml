@@ -2,7 +2,7 @@ name: Deploy GitHub Pages
 
 on:
   push:
-    branches: [master, cursor/signed-metrics-batch-triage-summary]
+    branches: [master]
   workflow_dispatch:
 
 permissions:
