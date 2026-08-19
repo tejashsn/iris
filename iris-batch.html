@@ -48,7 +48,6 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .stat-card.pass .value { color: var(--pass); }
 .stat-card.warn .value { color: var(--warn); }
 .stat-card.fail .value { color: var(--fail); }
-.exec-summary { font-size: 1.15rem; font-weight: 600; line-height: 1.45; margin: 0 0 .5rem; }
 .exec-meta { color: var(--muted); font-size: .85rem; }
 table { width: 100%; border-collapse: collapse; font-size: .82rem; }
 th, td { text-align: left; padding: .38rem .5rem; border-bottom: 1px solid var(--border); vertical-align: top; }
@@ -59,8 +58,28 @@ td.num, th.num { text-align: right; font-family: var(--mono); white-space: nowra
   letter-spacing: .06em; padding: .15rem .45rem; border-radius: 4px;
 }
 .badge.same { background: rgba(63,185,80,.15); color: var(--pass); border: 1px solid var(--pass); }
+.badge.pass { background: rgba(63,185,80,.15); color: var(--pass); border: 1px solid var(--pass); }
 .badge.differ { background: rgba(210,153,34,.15); color: var(--warn); border: 1px solid var(--warn); }
+.badge.fail { background: rgba(248,81,73,.15); color: var(--fail); border: 1px solid var(--fail); }
 .badge.error { background: rgba(248,81,73,.15); color: var(--fail); border: 1px solid var(--fail); }
+.verdict-banner {
+  padding: .85rem 1rem; border-radius: 8px; margin: 0 0 .75rem; font-weight: 700; font-size: 1.2rem;
+  letter-spacing: .04em;
+}
+.verdict-banner.pass { background: rgba(63,185,80,.12); border: 1px solid var(--pass); color: var(--pass); }
+.verdict-banner.fail { background: rgba(248,81,73,.12); border: 1px solid var(--fail); color: var(--fail); }
+.verdict-note { margin: 0 0 .75rem; font-size: .88rem; color: var(--muted); }
+.thumb-cell { text-align: center; min-width: 108px; vertical-align: middle; }
+.thumb-cell img {
+  display: block; margin: 0 auto .25rem; max-width: 100px; max-height: 100px;
+  border-radius: 4px; border: 1px solid var(--border); object-fit: contain; background: #000;
+}
+.thumb-placeholder {
+  width: 100px; height: 72px; margin: 0 auto .25rem; border-radius: 4px; border: 1px dashed var(--border);
+  display: flex; align-items: center; justify-content: center; font-size: .65rem; color: var(--muted);
+}
+.thumb-label { font-size: .62rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.mismatch-note { display: block; margin-top: .25rem; font-size: .72rem; color: var(--fail); font-family: var(--mono); }
 .note { color: var(--muted); font-size: .82rem; }
 .hidden { display: none !important; }
 .table-wrap { overflow: auto; max-height: 520px; border: 1px solid var(--border); border-radius: 6px; }
@@ -113,8 +132,18 @@ details.row-detail pre {
     </div>
   </section>
 
+  <section class="panel hidden" id="thumb-panel">
+    <h2>Image previews</h2>
+    <p class="note">Select both build folders to show reference and current thumbnails in the table below. Works with JSON reports and the demo — pick your two ComfyUI output folders, then click attach.</p>
+    <label class="folder-btn" id="thumb-ref-btn"><span id="thumb-ref-label">Reference build folder</span><input type="file" id="thumb-ref-folder" webkitdirectory multiple class="hidden"></label>
+    <label class="folder-btn" id="thumb-cur-btn"><span id="thumb-cur-label">Current build folder</span><input type="file" id="thumb-cur-folder" webkitdirectory multiple class="hidden"></label>
+    <button type="button" class="secondary" id="btn-attach-thumbs" disabled>Attach image previews</button>
+  </section>
+
   <section class="panel hidden" id="results-panel">
     <h2>Executive summary</h2>
+    <div id="verdict-banner"></div>
+    <p class="verdict-note" id="verdict-note"></p>
     <p class="exec-summary" id="exec-summary"></p>
     <p class="exec-meta" id="exec-meta"></p>
     <div class="grid" style="margin-top:1rem" id="stat-cards"></div>
@@ -126,6 +155,8 @@ details.row-detail pre {
       <label>Filter
         <select id="filter-status">
           <option value="all">All pairs</option>
+          <option value="pass">Pass only</option>
+          <option value="fail">Fail only</option>
           <option value="same">Same only</option>
           <option value="differ">Different only</option>
           <option value="error">Errors only</option>
@@ -139,6 +170,9 @@ details.row-detail pre {
         <thead>
           <tr>
             <th>Workflow / image</th>
+            <th>Reference</th>
+            <th>Current</th>
+            <th>Verdict</th>
             <th>Status</th>
             <th class="num">Similarity %</th>
             <th class="num">Mean abs</th>
@@ -182,8 +216,13 @@ const PAIR_KEY_PATTERN = /^\d+_(?<model>.+)__seed_.+$/;
 let currentSummary = null;
 let refFiles = [];
 let curFiles = [];
+let thumbRefFiles = [];
+let thumbCurFiles = [];
+let activeObjectUrls = [];
 
 const GLOSSARY = [
+  ["Verdict: PASS", "100% pixel match — every RGB sample is identical between reference and current.", "Bitwise identical. No drift."],
+  ["Verdict: FAIL", "Not a 100% pixel match — at least one RGB sample differs.", "See similarity % and % not matching note."],
   ["Status: SAME", "Every RGB pixel matches exactly between reference and current.", "Strongest possible match. No drift at all."],
   ["Status: DIFFER", "At least one pixel differs between the two images.", "Open details for how large and how widespread the difference is."],
   ["bitwise_identical", "True when every R, G, and B sample is exactly equal.", "Same as Status SAME."],
@@ -231,6 +270,86 @@ function renderGlossary() {
   document.getElementById("glossary-body").innerHTML = GLOSSARY.map(
     ([name, plain, read]) => `<tr><td>${escapeHtml(name)}</td><td>${escapeHtml(plain)}</td><td>${escapeHtml(read)}</td></tr>`
   ).join("");
+}
+
+function revokeObjectUrls() {
+  for (const url of activeObjectUrls) URL.revokeObjectURL(url);
+  activeObjectUrls = [];
+}
+
+function isPairPass(pair) {
+  if (pair.error) return false;
+  const m = pair.metrics || {};
+  return !!(pair.bitwise_identical || m.bitwise_identical || m.similarity_pct >= 100 || m.mean_abs === 0);
+}
+
+function pairMismatchPct(pair) {
+  if (isPairPass(pair)) return 0;
+  const m = pair.metrics || {};
+  return Math.max(0, 100 - (m.similarity_pct ?? 0));
+}
+
+function pairVerdict(pair) {
+  if (pair.error) return { label: "FAIL", cls: "fail", note: pair.error };
+  if (isPairPass(pair)) return { label: "PASS", cls: "pass", note: "100% pixel match" };
+  const mismatch = pairMismatchPct(pair);
+  const m = pair.metrics || {};
+  return {
+    label: "FAIL",
+    cls: "fail",
+    note: `${mismatch.toFixed(4)}% not matching (${fixed(m.pct_pixels_changed, 2)}% of pixels changed)`,
+  };
+}
+
+function batchVerdict(summary) {
+  const c = summary.counts || {};
+  const pairs = summary.pairs || [];
+  if ((c.errors || 0) > 0) {
+    return { label: "FAIL", cls: "fail", note: `${c.errors} pair(s) failed to compare.` };
+  }
+  const failedPairs = pairs.filter(p => !isPairPass(p));
+  if (failedPairs.length > 0) {
+    const worst = failedPairs.reduce((a, b) => pairMismatchPct(a) >= pairMismatchPct(b) ? a : b);
+    return {
+      label: "FAIL",
+      cls: "fail",
+      note: `${failedPairs.length} of ${pairs.length} pair(s) not 100% matching. Worst: ${pairMismatchPct(worst).toFixed(4)}% not matching.`,
+    };
+  }
+  const unmatched = (c.unmatched_reference || 0) + (c.unmatched_current || 0);
+  const unmatchedNote = unmatched
+    ? ` All compared pairs pass, but ${unmatched} file(s) were not compared (filename mismatch).`
+    : "";
+  return { label: "PASS", cls: "pass", note: `All ${pairs.length} compared pair(s) are 100% pixel-identical.${unmatchedNote}` };
+}
+
+function thumbHtml(url, label) {
+  if (url) {
+    return `<div class="thumb-cell"><span class="thumb-label">${escapeHtml(label)}</span><img src="${url}" alt="${escapeHtml(label)} preview" loading="lazy"></div>`;
+  }
+  return `<div class="thumb-cell"><span class="thumb-label">${escapeHtml(label)}</span><div class="thumb-placeholder">No preview</div></div>`;
+}
+
+function filesByName(fileList) {
+  const map = new Map();
+  for (const file of fileList) map.set(file.name, file);
+  return map;
+}
+
+function attachThumbnailsFromFolders(summary, refList, curList) {
+  revokeObjectUrls();
+  const refByName = filesByName(refList);
+  const curByName = filesByName(curList);
+  for (const pair of summary.pairs || []) {
+    const refName = basename(pair.reference);
+    const curName = basename(pair.current);
+    const refFile = refByName.get(refName);
+    const curFile = curByName.get(curName);
+    pair.ref_image_url = refFile ? URL.createObjectURL(refFile) : null;
+    pair.cur_image_url = curFile ? URL.createObjectURL(curFile) : null;
+    if (pair.ref_image_url) activeObjectUrls.push(pair.ref_image_url);
+    if (pair.cur_image_url) activeObjectUrls.push(pair.cur_image_url);
+  }
 }
 
 function sameSamples(a, b) {
@@ -355,10 +474,12 @@ function executiveSummary(summary) {
 }
 
 function statCardsHtml(c) {
+  const bv = batchVerdict({ counts: c, pairs: currentSummary?.pairs || [] });
   const cards = [
+    ["Batch verdict", bv.label, bv.cls],
     ["Pairs compared", c.pairs_compared, ""],
-    ["Bitwise identical", c.bitwise_identical, "pass"],
-    ["Different", c.differ, c.differ ? "warn" : ""],
+    ["Pass (100% match)", c.bitwise_identical, "pass"],
+    ["Fail (not 100%)", c.differ, c.differ ? "fail" : ""],
     ["Errors", c.errors, c.errors ? "fail" : ""],
     ["Unmatched (reference)", c.unmatched_reference, c.unmatched_reference ? "warn" : ""],
     ["Unmatched (current)", c.unmatched_current, c.unmatched_current ? "warn" : ""],
@@ -379,7 +500,10 @@ function renderTable(summary) {
   const tbody = document.getElementById("results-body");
   const rows = (summary.pairs || []).filter(pair => {
     const st = pairStatus(pair);
+    const vd = pairVerdict(pair);
     if (filter === "all") return true;
+    if (filter === "pass") return vd.label === "PASS";
+    if (filter === "fail") return vd.label === "FAIL";
     if (filter === "same") return st.cls === "same";
     if (filter === "differ") return st.cls === "differ";
     if (filter === "error") return st.cls === "error";
@@ -388,11 +512,18 @@ function renderTable(summary) {
 
   tbody.innerHTML = rows.map(pair => {
     const st = pairStatus(pair);
+    const vd = pairVerdict(pair);
     const m = pair.metrics || {};
     const name = pair.model || modelFromPairKey(pair.pair_key || basename(pair.reference));
     const hl = pair.headline || headlineForPair(m);
+    const mismatchNote = vd.label === "FAIL" && !pair.error
+      ? `<span class="mismatch-note">${escapeHtml(vd.note)}</span>`
+      : "";
     return `<tr>
       <td><strong>${escapeHtml(name)}</strong><br><span class="note">${escapeHtml(basename(pair.pair_key || pair.reference || ""))}</span></td>
+      <td>${thumbHtml(pair.ref_image_url, "Reference")}</td>
+      <td>${thumbHtml(pair.cur_image_url, "Current")}</td>
+      <td><span class="badge ${vd.cls}">${vd.label}</span>${mismatchNote}</td>
       <td><span class="badge ${st.cls}">${st.label}</span></td>
       <td class="num">${pair.error ? "—" : fixed(m.similarity_pct, 2)}</td>
       <td class="num">${pair.error ? "—" : fixed(m.mean_abs, 4)}</td>
@@ -429,8 +560,15 @@ function renderUnmatched(summary) {
 
 function showSummary(summary) {
   currentSummary = summary;
+  document.getElementById("thumb-panel").classList.remove("hidden");
   document.getElementById("results-panel").classList.remove("hidden");
   document.getElementById("table-panel").classList.remove("hidden");
+
+  const bv = batchVerdict(summary);
+  document.getElementById("verdict-banner").innerHTML =
+    `<div class="verdict-banner ${bv.cls}">Batch prediction: ${bv.label}</div>`;
+  document.getElementById("verdict-note").textContent = bv.note;
+
   document.getElementById("exec-summary").textContent = executiveSummary(summary);
   const meta = [];
   if (summary.input_dirs?.reference) meta.push(`Reference: ${summary.input_dirs.reference}`);
@@ -439,6 +577,14 @@ function showSummary(summary) {
   if (summary.schema_version) meta.push(`Schema ${summary.schema_version}`);
   document.getElementById("exec-meta").textContent = meta.join(" · ");
   document.getElementById("stat-cards").innerHTML = statCardsHtml(summary.counts || {});
+
+  const refList = thumbRefFiles.length ? thumbRefFiles : refFiles;
+  const curList = thumbCurFiles.length ? thumbCurFiles : curFiles;
+  const hasThumbs = (summary.pairs || []).some(p => p.ref_image_url || p.cur_image_url);
+  if (refList.length && curList.length && !hasThumbs) {
+    attachThumbnailsFromFolders(summary, refList, curList);
+  }
+
   renderTable(summary);
   renderUnmatched(summary);
 }
@@ -517,11 +663,16 @@ async function runBrowserBatch(refList, curList, threshold, onProgress) {
       const metrics = computeMetrics(refImg, curImg, threshold);
       const bitwise = metrics.bitwise_identical;
       if (bitwise) identical++; else differ++;
+      const refUrl = URL.createObjectURL(ref);
+      const curUrl = URL.createObjectURL(cur);
+      activeObjectUrls.push(refUrl, curUrl);
       results.push({
         pair_key: key,
         model: modelFromPairKey(key),
         reference: ref.name,
         current: cur.name,
+        ref_image_url: refUrl,
+        cur_image_url: curUrl,
         bitwise_identical: bitwise,
         gate_verdict: "REPORT_ONLY",
         gate_exit: 0,
@@ -577,14 +728,17 @@ function downloadText(filename, text, mime) {
 }
 
 function summaryToCsv(summary) {
-  const header = ["model", "status", "bitwise_identical", "mean_abs", "mean_signed", "p99_9", "max_abs", "pct_over_t", "pct_pixels_changed", "similarity_pct", "signed_ratio", "error"];
+  const header = ["model", "verdict", "status", "bitwise_identical", "not_matching_pct", "mean_abs", "mean_signed", "p99_9", "max_abs", "pct_over_t", "pct_pixels_changed", "similarity_pct", "signed_ratio", "error"];
   const rows = (summary.pairs || []).map(p => {
     const m = p.metrics || {};
     const st = pairStatus(p).label;
+    const vd = pairVerdict(p).label;
     return [
       p.model || modelFromPairKey(p.pair_key || ""),
+      vd,
       st,
       p.bitwise_identical,
+      pairMismatchPct(p).toFixed(4),
       m.mean_abs ?? "",
       m.mean_signed ?? "",
       m.p99_9 ?? "",
@@ -658,6 +812,28 @@ document.getElementById("btn-download-json").addEventListener("click", () => {
 document.getElementById("btn-download-csv").addEventListener("click", () => {
   if (!currentSummary) return;
   downloadText("batch_summary.csv", summaryToCsv(currentSummary), "text/csv");
+});
+
+function updateThumbAttachButton() {
+  document.getElementById("btn-attach-thumbs").disabled = !(thumbRefFiles.length && thumbCurFiles.length);
+}
+
+document.getElementById("thumb-ref-folder").addEventListener("change", e => {
+  thumbRefFiles = [...(e.target.files || [])];
+  document.getElementById("thumb-ref-btn").classList.add("loaded");
+  document.getElementById("thumb-ref-label").textContent = `Reference: ${thumbRefFiles.length} files`;
+  updateThumbAttachButton();
+});
+document.getElementById("thumb-cur-folder").addEventListener("change", e => {
+  thumbCurFiles = [...(e.target.files || [])];
+  document.getElementById("thumb-cur-btn").classList.add("loaded");
+  document.getElementById("thumb-cur-label").textContent = `Current: ${thumbCurFiles.length} files`;
+  updateThumbAttachButton();
+});
+document.getElementById("btn-attach-thumbs").addEventListener("click", () => {
+  if (!currentSummary || !thumbRefFiles.length || !thumbCurFiles.length) return;
+  attachThumbnailsFromFolders(currentSummary, thumbRefFiles, thumbCurFiles);
+  renderTable(currentSummary);
 });
 
 renderGlossary();
